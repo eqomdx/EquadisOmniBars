@@ -1,6 +1,6 @@
 ## Interface: 11200
 ## Title: Equadis' OmniBars
-## Version: 0.2.0
+## Version: 0.2.1
 ## Author: Equadis
 ## Notes: All-in-one interface package. In development: the combat HUD is the first module set.
 ## X-Website: https://github.com/eqomdx/EquadisOmniBars
