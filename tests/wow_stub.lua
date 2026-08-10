@@ -158,6 +158,49 @@ templates.OptionsSliderTemplate = function(frame)
     end
 end
 
+--[[ A scanning tooltip. Loading an item or a spell copies a block out of
+     Stub.tooltips into the line font strings, which is the only part of a real
+     tooltip the addon ever reads.
+
+     These methods have to be real rather than left to the auto-faking metatable:
+     NumLines answering nil would turn `for i = 1, tip:NumLines()` into an error
+     rather than an empty loop, and the whole scrape would silently never run. ]]--
+templates.GameTooltipTemplate = function(frame)
+    frame.lines = {}
+    frame.lineCount = 0
+
+    frame.Line = function(self, i)
+        if not self.lines[i] then
+            self.lines[i] = newFontString(self, "OVERLAY")
+            if self.name then _G[self.name .. "TextLeft" .. i] = self.lines[i] end
+        end
+        return self.lines[i]
+    end
+
+    frame.ClearLines = function(self)
+        self.lineCount = 0
+        for i = 1, table.getn(self.lines) do self.lines[i]:SetText("") end
+    end
+
+    frame.NumLines = function(self) return self.lineCount end
+    frame.SetOwner = function() end
+
+    local function load(self, key)
+        self:ClearLines()
+
+        local block = Stub.tooltips[key]
+        if not block then return end
+
+        for i = 1, table.getn(block) do
+            self:Line(i):SetText(block[i])
+        end
+        self.lineCount = table.getn(block)
+    end
+
+    frame.SetInventoryItem = function(self, unit, slot) load(self, "item" .. slot) end
+    frame.SetSpell = function(self, index, bookType) load(self, "spell" .. index) end
+end
+
 function CreateFrame(ftype, name, parent, template)
     local f = newObject(ftype or "Frame")
     f.frameType = ftype
@@ -401,7 +444,26 @@ Stub.player = {
     inCombat = false,
     dead = false,
     buffs = {},
+
+    rangedSpeed = 2.9,
+
+    -- what the target is, and how far away. hasTarget nil means none at all.
+    hasTarget = false,
+    targetDistance = 0,
+
+    -- UnitStat indices: 4 intellect, 5 spirit
+    stats = { [1] = 20, [2] = 20, [3] = 20, [4] = 100, [5] = 80 },
+
+    -- GetSpellTexture by book index
+    spellbook = {},
+    spellCount = 0,
+
+    -- GetTalentInfo rank, keyed "tab:index"
+    talents = {},
 }
+
+-- blocks of tooltip text, keyed "item<slot>" and "spell<bookIndex>"
+Stub.tooltips = {}
 
 function UnitClass(unit) return Stub.player.localizedClass, Stub.player.class end
 function UnitName(unit) return Stub.player.name end
@@ -416,6 +478,81 @@ function UnitAffectingCombat(unit) return Stub.player.inCombat end
 function UnitIsDeadOrGhost(unit) return Stub.player.dead end
 function GetComboPoints() return Stub.player.combo end
 function GetPlayerBuffTexture(i) return Stub.player.buffs[i + 1] end
+
+function UnitExists(unit)
+    if unit == "player" then return 1 end
+    return Stub.player.hasTarget and 1 or nil
+end
+
+function UnitRangedDamage(unit)
+    return Stub.player.rangedSpeed, 40, 60, 0, 0, 100
+end
+
+function UnitStat(unit, index)
+    local value = Stub.player.stats[index] or 0
+    return value, value, 0, 0
+end
+
+function GetTalentInfo(tab, index)
+    local rank = Stub.player.talents[tab .. ":" .. index] or 0
+    return "Talent", "", 1, 1, rank, 5
+end
+
+function GetSpellTabInfo(tab)
+    return "Class", "", 0, Stub.player.spellCount or 0
+end
+
+function GetSpellTexture(index, bookType)
+    return Stub.player.spellbook[index]
+end
+
+function GetLocale() return Stub.locale or "enUS" end
+
+--[[ CheckInteractDistance's real thresholds: 1 inspect ~28yd, 2 trade ~11.1yd,
+     3 duel ~9.9yd, 4 follow ~28yd.
+
+     It answers nil, never false, and answers nil for a unit that cannot be
+     interacted with at all -- which a hostile mob cannot. Stub.interactRefuses
+     models exactly that case, because treating it as an error rather than as
+     "too far" is the mistake the range module is written to avoid. ]]--
+local INTERACT_YARDS = { 28, 11.11, 9.9, 28 }
+
+function CheckInteractDistance(unit, index)
+    if not Stub.player.hasTarget then return nil end
+    if Stub.interactRefuses then return nil end
+
+    local limit = INTERACT_YARDS[index]
+    if limit and (Stub.player.targetDistance or 0) <= limit then return 1 end
+    return nil
+end
+
+-- 1 in range, 0 out of range, nil when the slot is not range checked
+function IsActionInRange(slot)
+    if Stub.actionRange == nil then return nil end
+    return Stub.actionRange
+end
+
+function UseAction(slot, checkCursor, onSelf)
+    Stub.lastAction = slot
+end
+
+--[[ SuperWoW's UnitXP, which is injected by the client rather than by an addon
+     and so is simply absent on a plain install. Tests put it in and take it out
+     again to drive the range module down each of its backends. ]]--
+function Stub.SetUnitXP(present)
+    if not present then
+        UnitXP = nil
+        return
+    end
+
+    UnitXP = function(command, a, b)
+        if command == "distanceBetween" then
+            if b == "player" then return 0 end
+            return Stub.player.targetDistance or 0
+        end
+        return 0
+    end
+end
 
 function GetTime() return clock end
 function GetCursorPosition() return Stub.cursorX or 0, Stub.cursorY or 0 end
@@ -471,9 +608,13 @@ end
 function ShowUIPanel(frame) if frame and frame.Show then frame:Show() end end
 function HideUIPanel(frame) if frame and frame.Hide then frame:Hide() end end
 
+BOOKTYPE_SPELL = "spell"
+
 UIParent = CreateFrame("Frame", "UIParent")
 UIParent:SetWidth(1024)
 UIParent:SetHeight(768)
+
+WorldFrame = CreateFrame("Frame", "WorldFrame")
 
 ColorPickerFrame = CreateFrame("Frame", "ColorPickerFrame", UIParent)
 ColorPickerFrame.rgb = { 1, 1, 1 }

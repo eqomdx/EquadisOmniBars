@@ -38,16 +38,7 @@ local stealthTextures = {
 }
 
 function OB.IsStealthed()
-    local i = 0
-    local texture = GetPlayerBuffTexture(i)
-
-    while texture do
-        if stealthTextures[texture] then return true end
-        i = i + 1
-        texture = GetPlayerBuffTexture(i)
-    end
-
-    return false
+    return OB.HasPlayerBuff(stealthTextures)
 end
 
 -- ---------------------------------------------------------------------------
@@ -82,6 +73,18 @@ function OB.BindSlots()
         local slotId = OB.slotOrder[i]
         local id = OB.ResolveOccupant(slotId)
         local m = id and OB.modules[id]
+
+        --[[ A module occupies at most one slot. The unbind pass above clears
+             every slotId, so a module still carrying one was claimed earlier in
+             this same walk and the later slot is simply left empty.
+
+             Two slots really can resolve to the same module without anyone
+             having made a mistake: a hunter's explicit points = "range" and the
+             automatic occupant of aux are both the range module. Without this
+             guard the second bind overwrites m.slotId and the module draws in
+             one slot while reading another's geometry. Slot order decides the
+             winner, which puts the explicit assignment first. ]]--
+        if m and m.slotId then m = nil end
 
         if m then
             local slot = OB.profile.slots[slotId]

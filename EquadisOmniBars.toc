@@ -1,6 +1,6 @@
 ## Interface: 11200
 ## Title: Equadis' OmniBars
-## Version: 0.1.0
+## Version: 0.2.0
 ## Author: Equadis
 ## Notes: All-in-one interface package. In development: the combat HUD is the first module set.
 ## X-Website: https://github.com/eqomdx/EquadisOmniBars
@@ -25,6 +25,8 @@ modules\power.lua
 modules\combopoints.lua
 modules\swing.lua
 modules\health.lua
+modules\range.lua
+modules\druidmana.lua
 
 # interface
 options.lua

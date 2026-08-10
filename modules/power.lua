@@ -109,6 +109,26 @@ OB.tickers.fsr = {
 OB.powerTickers = { [0] = "fsr", [2] = "pulse", [3] = "pulse" }
 
 -- ---------------------------------------------------------------------------
+-- rage decay
+--
+-- Rage is the one resource that leaks while you stand still, and the rate is a
+-- server constant the 1.12 client never handed to Lua. Turtle may well have
+-- retuned it. So it is measured rather than assumed: the marker points wherever
+-- this server's own behaviour says it will, and needs no constant to keep up to
+-- date.
+--
+-- A run of falling values is anchored and then divided. Two things end a run:
+-- any gain, and a step too abrupt to be decay -- spending rage is not the bar
+-- draining, and averaging a cost into the rate would put the marker on the
+-- floor. The estimate is taken once enough rage has actually been lost rather
+-- than after a fixed wait, so it holds whether the server ticks four times a
+-- second or once.
+-- ---------------------------------------------------------------------------
+
+local DECAY_MIN_DROP = 2    -- rage that must be lost before a rate is believed
+local DECAY_SPEND = 5       -- a single step larger than this is a cost
+
+-- ---------------------------------------------------------------------------
 -- module
 -- ---------------------------------------------------------------------------
 
@@ -125,6 +145,10 @@ local M = OB.RegisterModule({
         tickerColor = { 1, 1, 1, 1 },
         fsrShade = true,
         fsrColor = { 0.3, 0.5, 1.0, 0.25 },
+
+        rageDecay = false,
+        rageDecaySeconds = 3,
+        rageDecayColor = { 1.0, 0.85, 0.35, 0.9 },
 
         --[[ Keyed by UnitPowerType. Only colour and ticker mode live here: the
              per-type entry is what a druid swaps between, and everything else
@@ -149,6 +173,9 @@ local M = OB.RegisterModule({
                 { "None", "Current Only", "Percentage", "Current / Max" }) },
         { "Shade Five Second Rule", "fsrShade", "boolean", nil, nil, nil, nil, "@power_mana" },
         { "Five Second Rule Colour", "fsrColor", "color", true, nil, nil, nil, "@power_mana" },
+        { "Mark Rage Decay", "rageDecay", "boolean", nil, nil, nil, nil, "@power_rage" },
+        { "Decay Look Ahead", "rageDecaySeconds", "slider", 1, 10, 1, nil, "@power_rage" },
+        { "Decay Marker Colour", "rageDecayColor", "color", true, nil, nil, nil, "@power_rage" },
     },
 
     events = {
@@ -207,6 +234,44 @@ function M:OnBind(slot)
     self:AdoptPowerType(GetTime())
 end
 
+--[[ Watch a run of falling rage and keep a rate estimate. See the note above the
+     constants for why this is measured and not assumed.
+
+     `decayFrom` doubles as the "rage is falling right now" flag, which is what
+     the marker keys off: a projection drawn while rage is climbing points at a
+     number that will never happen. ]]--
+function M:ObserveRageDecay(now, current, previous)
+    local diff = current - previous
+
+    if diff > 0 or diff < -DECAY_SPEND then
+        self.decayFrom = nil
+        return
+    end
+
+    --[[ Rage held still. Not a gain, so an open run continues -- the client
+         reports rage in whole numbers and a slow drain shows as flat frames
+         between steps -- but it must not *start* one. Without this, sitting at
+         full rage arms a run and the marker appears on a bar that is not going
+         anywhere. ]]--
+    if diff == 0 then return end
+
+    if not self.decayFrom then
+        self.decayFrom = { at = now, value = current }
+        return
+    end
+
+    local elapsed = now - self.decayFrom.at
+    local lost = self.decayFrom.value - current
+
+    if elapsed <= 0 or lost < DECAY_MIN_DROP then return end
+
+    self.rageRate = lost / elapsed
+
+    -- re-anchor so the estimate keeps tracking instead of freezing on the first
+    -- sample it ever took
+    self.decayFrom = { at = now, value = current }
+end
+
 function M:OnStyle(slot)
     local cfg = self:Config()
     local variant = self:VariantTable()
@@ -252,6 +317,14 @@ function M:OnUpdate(now)
         end
     end
 
+    --[[ Unlike the tickers, this one runs in test mode too. It has no cycle for
+         the preview to fight over -- it only learns a number -- and letting the
+         simulated drain feed it is what puts the marker on screen before anyone
+         has stood in a field waiting for real rage to leak away. ]]--
+    if self.ptype == 1 then
+        self:ObserveRageDecay(now, value, self.last)
+    end
+
     self.last = value
 
     local bar = self.frame
@@ -294,6 +367,22 @@ function M:OnDraw()
     local slot = OB.profile.slots[self.slotId]
     OB.SetBarFill(self.frame, fraction, slot.flip)
     self.frame.center:SetText(OB.FormatValue(value, max, cfg.textMode))
+
+    --[[ Where rage will have leaked to by the time the look-ahead is up, as a
+         line on the bar. Drawn only while it is actually leaking and only once a
+         rate has been observed, so it never asserts a number the addon has not
+         watched this server produce. ]]--
+    if cfg.rageDecay and self.ptype == 1 and self.decayFrom and self.rageRate
+            and max > 0 then
+        local projected = value - (self.rageRate * cfg.rageDecaySeconds)
+        if projected < 0 then projected = 0 end
+
+        local c = cfg.rageDecayColor
+        OB.SetBarTick(self.frame, 1, projected / max, slot.flip,
+                c[1], c[2], c[3], c[4] or 1)
+    else
+        OB.HideBarTicks(self.frame)
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -320,6 +409,7 @@ function M:TestStart(now)
         -- rage starts empty and builds
         OB.test.power = 0
         OB.test.powerRefill = true
+        OB.test.powerDecayAt = now + 1
     else
         OB.test.power = realMax
     end
@@ -375,6 +465,19 @@ function M:TestStep(now)
             self.state.period = 5
         end
 
+        changed = true
+    end
+
+    --[[ Rage leaks in the preview because the decay marker has nothing to point
+         at otherwise. A whole number once a second, so the floor below cannot
+         eat a fractional step -- and the rate the observer then measures off
+         this is the preview's rate, not a claim about any server. ]]--
+    if self.ptype == 1 and not OB.test.powerRefill
+            and now >= (OB.test.powerDecayAt or 0) then
+        OB.test.powerDecayAt = now + 1
+
+        OB.test.power = OB.test.power - 3
+        if OB.test.power < 0 then OB.test.power = 0 end
         changed = true
     end
 

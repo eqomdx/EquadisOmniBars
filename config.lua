@@ -43,7 +43,7 @@ end
        points 115..107   swingB 106..94   swingA 93..81
        resource 80..56   health 55..39    aux 38..26 ]]--
 OB.defaults = {
-    schema = 1,
+    schema = 2,
 
     -- visibility
     show = true,
@@ -91,15 +91,21 @@ OB.defaults = {
     --[[ "*" is every class; a class key overrides it slot by slot.
 
          The hunter rows are seeded data, not a branch in the code: a hunter has
-         no off hand and wants the range readout where a rogue keeps combo
-         points. Changing the dropdown writes exactly this shape, so the shipped
-         default and a user edit are indistinguishable. ]]--
+         no off hand, shoots rather than swings, and wants the range readout
+         where a rogue keeps combo points. Changing the dropdown writes exactly
+         this shape, so the shipped default and a user edit are
+         indistinguishable.
+
+         aux is "auto" rather than "none" so it takes whichever module names it
+         as a default -- the range readout, or a druid's secondary mana, which
+         outranks it. The slot still ships hidden, so nothing appears until the
+         user asks for it. ]]--
     assign = {
         ["*"] = {
             points = "auto", swingB = "auto", swingA = "auto",
-            resource = "auto", health = "auto", aux = "none",
+            resource = "auto", health = "auto", aux = "auto",
         },
-        ["HUNTER"] = { points = "range", swingB = "none" },
+        ["HUNTER"] = { points = "range", swingB = "none", swingA = "swing_ranged" },
     },
 
     -- filled in by OB.RegisterModule as each module loads
@@ -120,7 +126,20 @@ OB.defaults = {
 -- ---------------------------------------------------------------------------
 
 OB.profileMigrations = {
-    -- { 2, function(p) ... end },
+    --[[ aux went from a reserved spare to a slot that takes whatever module
+         defaults there, so its sentinel changed meaning and a saved "none" has
+         to be re-read as "auto".
+
+         Overriding a saved value is normally the wrong thing to do. It is right
+         here because in schema 1 no module named aux as its default slot at all,
+         so "none" was the only value the slot could ever have held -- nobody
+         chose it over an alternative, because there was none. An explicit choice
+         made since is preserved: only the untouched default is rewritten. ]]--
+    { 2, function(p)
+        if p.assign and p.assign["*"] and p.assign["*"].aux == "none" then
+            p.assign["*"].aux = "auto"
+        end
+    end },
 }
 
 function OB.RunProfileMigrations(p)

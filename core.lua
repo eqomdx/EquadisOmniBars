@@ -17,7 +17,7 @@ local _G = getfenv(0)
 EquadisOmniBars = {}
 local OB = EquadisOmniBars
 
-OB.version = "0.1.0"
+OB.version = "0.2.0"
 OB.addonName = "Equadis' OmniBars"
 
 --[[ The addon folder name is load-bearing: every media path below hardcodes it,
@@ -224,6 +224,54 @@ end
      reordered, and it reads far better at the slash prompt than "2". ]]--
 function OB.Enum(values, labels)
     return { enum = true, values = values, labels = labels }
+end
+
+-- ---------------------------------------------------------------------------
+-- scanning
+--
+-- Vanilla hides a good deal behind tooltip text and nowhere else: an item's mana
+-- per five seconds, a spell's cost. Reading it means loading the thing into a
+-- tooltip nobody can see and reading the font strings back out.
+-- ---------------------------------------------------------------------------
+
+--[[ The shared hidden tooltip, built on first use.
+
+     One instance for the whole addon. Several things want it -- the druid mana
+     estimate now, mob health and the feign-death health override later -- and a
+     tooltip per caller means loading the same eighteen items several times over
+     for the same answer. ]]--
+function OB.ScanTooltip()
+    if not OB.scanTip then
+        OB.scanTip = CreateFrame("GameTooltip", "EquadisOmniBarsScanTooltip",
+                nil, "GameTooltipTemplate")
+        OB.scanTip:SetOwner(WorldFrame, "ANCHOR_NONE")
+    end
+    return OB.scanTip
+end
+
+-- the text of the scanning tooltip's Nth left-hand line, or nil past the end
+function OB.ScanLine(index)
+    local line = getglobal("EquadisOmniBarsScanTooltipTextLeft" .. index)
+    if not line then return nil end
+    return line:GetText()
+end
+
+--[[ True when any of `textures` (a set keyed by icon path) is on the player.
+
+     Icon paths are the only identity a 1.12 buff has from Lua -- there is no id
+     and the name is localised -- so every buff test in the addon is a texture
+     comparison, and they all come through here. ]]--
+function OB.HasPlayerBuff(textures)
+    local i = 0
+    local texture = GetPlayerBuffTexture(i)
+
+    while texture do
+        if textures[texture] then return true end
+        i = i + 1
+        texture = GetPlayerBuffTexture(i)
+    end
+
+    return false
 end
 
 -- ---------------------------------------------------------------------------

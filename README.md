@@ -8,11 +8,12 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.1.0 — in development.**
-> This is the first draft. The combat HUD is implemented and working; everything
-> else on the roadmap below is not written yet. Expect the saved-variables format
-> to change between early versions (migrations are provided, but keep a backup of
-> your `WTF` folder if you care about your layout).
+> **Version 0.2.0 — in development.**
+> The combat HUD is implemented and working, including the range readout, the
+> ranged swing timer and a druid's secondary mana. The meters, unit frames and
+> nameplates on the roadmap below are not written yet. Expect the saved-variables
+> format to change between early versions (migrations are provided, but keep a
+> backup of your `WTF` folder if you care about your layout).
 
 ## Why
 
@@ -33,8 +34,8 @@ chat, not a hard block.
 |---|---|
 | Core framework — config, profiles, media, options generator, module registry | **done** |
 | Combat HUD — resource, combo points, swing timers, health | **done** |
-| Range readout (hunter dead-zone bar) | next |
-| Combat log parser | planned |
+| Range readout, ranged swing timer, druid secondary mana | **done** |
+| Combat log parser | next |
 | Damage meter | planned |
 | Threat meter | planned |
 | Unit frames | planned |
@@ -77,7 +78,7 @@ bar does not move.
 | `swingA` | Main hand swing |
 | `resource` | Energy / rage / mana / focus, whichever the class uses |
 | `health` | Health |
-| `aux` | Spare, hidden by default |
+| `aux` | Range readout, or a druid's secondary mana. Hidden by default |
 
 An empty slot draws nothing and leaves a gap rather than closing it up — closing
 up would move the other bars, and then two characters with different occupancy
@@ -89,19 +90,36 @@ would no longer line up. **Restack Occupied Slots** does it on demand instead.
 ticker to the observed regeneration pulse and hold the phase when capped, so the
 spark is in the right place the moment you spend. Mana has no pulse to observe,
 so it infers the cycle from the last change: spending opens a five second rule
-window, optionally shaded on the bar as a shrinking region. Rage does not tick.
+window, optionally shaded on the bar as a shrinking region. Rage does not tick,
+but it leaks — an optional marker shows where it will have decayed to a few
+seconds from now, at a rate measured from your own server rather than assumed.
 
 **Combo Points** — five segments, one colour each, inactive points dimmed to a
 configurable opacity.
 
-**Swing Timers** — main and off hand, with remaining time and weapon speed. Fill
-or deplete, flip, swap the text sides, 0–2 decimals. Because vanilla's combat log
-does not say which hand swung, a landed swing is attributed to whichever hand has
-been ready *longest* — which is what lets the pair recover on its own after a
-stun or a run out of range.
+**Swing Timers** — main hand, off hand and ranged, with remaining time and weapon
+speed. Fill or deplete, flip, swap the text sides, 0–2 decimals. Because vanilla's
+combat log does not say which hand swung, a landed swing is attributed to
+whichever hand has been ready *longest* — which is what lets the pair recover on
+its own after a stun or a run out of range.
 
 **Health** — green by default, any colour, optionally your class colour, with an
 optional recolour below a threshold.
+
+**Range** — how far away your target is, drawn by whichever of three backends
+your client can actually support. With SuperWoW's `UnitXP` it is a real distance:
+a continuous bar with the dead zone marked and the yardage on it. Without one it
+falls back to four bands from `CheckInteractDistance`, exactly one lit — a
+position readout rather than a fill, which is what keeps it legible at 8 pixels
+tall. In between, it can watch one action bar slot and use the game's own range
+check for that ability, which for a hunter's Auto Shot beats every heuristic.
+Press **Capture Next Action** and then the button you want it to follow.
+
+**Druid Mana** — how much mana you still have in bear or cat form. Vanilla stops
+reporting it the moment you shift, so it is simulated from the shift onwards:
+spirit regeneration, mana-per-5 from your gear, the shapeshift cost, Innervate
+and the five second rule. If you log in already shifted there is no baseline to
+work from, so the bar stays hidden rather than showing a confident wrong number.
 
 Every module can be switched off independently on the **Modules** page.
 
@@ -155,6 +173,10 @@ whether they may then stack, and border art counts as part of a bar.
 Vanilla 1.12 client APIs only, Lua 5.0, no libraries, no dependencies, no
 localisation requirements.
 
+SuperWoW is optional. If its `UnitXP` is present the range readout uses it and
+becomes a real distance; if not, everything still works and the readout falls
+back to bands. Nothing in the addon requires a client mod.
+
 If RogueBars is enabled at the same time you will see two sets of bars, because
 OmniBars supersedes it. It says so once in chat rather than refusing to load.
 
@@ -162,8 +184,9 @@ OmniBars supersedes it. It says so once in chat rather than refusing to load.
 
 `tests/` holds a stub of the 1.12 client and a suite that boots the real addon
 against it — nine classes, event dispatch, rendering maths, ticker phase, swing
-attribution, collision, profiles, the options panel and every slash command. The
-TOC does not list `tests/`, so the game never loads it.
+attribution, range backend selection, collision, profiles, migrations, the
+options panel and every slash command. The TOC does not list `tests/`, so the
+game never loads it.
 
 ```
 luajit tests/run.lua
@@ -178,5 +201,8 @@ Built on the architecture of Equadis' Rogue Bars, which it supersedes, and drawi
 on patterns from ShaguDPS (namespace, dirty-flag dispatch, combat log parsing),
 Equadis' Threat Meter (config loader, declarative options, widget factory) and
 Equadis' UnitFrames (the mana tick heuristic).
+
+The druid secondary mana estimate is ported from DruidManaLib-1.0 by Aviana,
+rewritten standalone so it no longer needs Ace2.
 
 MIT licensed.

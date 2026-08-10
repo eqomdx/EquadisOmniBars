@@ -15,6 +15,11 @@ local swing = {
     attacking = false,
     mainStart = 0,
     offStart = 0,
+
+    -- the ranged cycle runs independently: a hunter shooting is not swinging,
+    -- and the two toggles are different events
+    shooting = false,
+    rangedStart = 0,
 }
 
 OB.swing = swing
@@ -87,9 +92,63 @@ local function swingLanded()
     end
 end
 
+-- ---------------------------------------------------------------------------
+-- ranged
+-- ---------------------------------------------------------------------------
+
+local function startShooting()
+    if OB.testMode then return end
+    swing.shooting = true
+    swing.rangedStart = GetTime()
+end
+
+local function stopShooting()
+    if OB.testMode then return end
+    swing.shooting = false
+    swing.rangedStart = 0
+end
+
+--[[ Re-anchor the ranged cycle on a shot that landed.
+
+     CHAT_MSG_SPELL_SELF_DAMAGE carries every spell the player lands, not just
+     the auto shot, and vanilla's combat log does not name the source in any form
+     this phase can read -- recovering that needs the localisation-aware parser
+     Phase 3 brings. So the event is filtered by *timing* instead: an auto shot
+     can only land at the end of its own cycle, and anything arriving early in
+     the cycle is some other spell and must not move the anchor.
+
+     Three quarters of a cycle is the threshold. Too strict and a shot fired at a
+     moving target never re-anchors; too loose and an instant cast fired while
+     the shot is pending drags the bar backwards. Getting it wrong is
+     self-correcting either way -- the next START_AUTOREPEAT_SPELL re-seeds --
+     which is why a heuristic is acceptable here and was not acceptable for the
+     main and off hand pair. ]]--
+local function shotLanded()
+    if OB.testMode or not swing.shooting then return end
+
+    local now = GetTime()
+    local speed = UnitRangedDamage("player")
+    if not speed or speed <= 0 then return end
+
+    if (now - swing.rangedStart) < (speed * 0.75) then return end
+
+    swing.rangedStart = now
+end
+
 local tracker = CreateFrame("Frame", "EquadisOmniBarsSwing", UIParent)
 
 tracker:SetScript("OnEvent", function()
+    if event == "START_AUTOREPEAT_SPELL" then
+        startShooting()
+        return
+    elseif event == "STOP_AUTOREPEAT_SPELL" then
+        stopShooting()
+        return
+    elseif event == "CHAT_MSG_SPELL_SELF_DAMAGE" then
+        shotLanded()
+        return
+    end
+
     --[[ PLAYER_ENTER_COMBAT and PLAYER_LEAVE_COMBAT are the melee auto-attack
          toggle in vanilla, not combat state. Combat state is
          PLAYER_REGEN_DISABLED / ENABLED, which hud.lua uses separately for
@@ -100,6 +159,7 @@ tracker:SetScript("OnEvent", function()
         stopSwings()
     elseif event == "PLAYER_DEAD" then
         stopSwings()
+        stopShooting()
     else
         swingLanded()
     end
@@ -110,6 +170,9 @@ tracker:RegisterEvent("PLAYER_LEAVE_COMBAT")
 tracker:RegisterEvent("PLAYER_DEAD")
 tracker:RegisterEvent("CHAT_MSG_COMBAT_SELF_HITS")
 tracker:RegisterEvent("CHAT_MSG_COMBAT_SELF_MISSES")
+tracker:RegisterEvent("START_AUTOREPEAT_SPELL")
+tracker:RegisterEvent("STOP_AUTOREPEAT_SPELL")
+tracker:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE")
 
 -- ---------------------------------------------------------------------------
 -- shared implementation
@@ -126,6 +189,9 @@ local function swingOptions()
     }
 end
 
+-- plausible speeds for the preview, per hand, when nothing is equipped
+local TEST_SPEED = { main = 2.6, off = 1.7, ranged = 2.9 }
+
 local impl = {}
 
 function impl:Config()
@@ -135,23 +201,44 @@ end
 -- main and off hand speeds come from one call, so which one this module wants
 -- is a property of the module, not a separate API
 function impl:GetSpeed()
-    local mainSpeed, offSpeed = UnitAttackSpeed("player")
-
     local speed, start
-    if self.hand == "off" then
-        speed, start = offSpeed, OB.swing.offStart
+
+    if self.hand == "ranged" then
+        speed, start = UnitRangedDamage("player"), OB.swing.rangedStart
     else
-        speed, start = mainSpeed, OB.swing.mainStart
+        local mainSpeed, offSpeed = UnitAttackSpeed("player")
+        if self.hand == "off" then
+            speed, start = offSpeed, OB.swing.offStart
+        else
+            speed, start = mainSpeed, OB.swing.mainStart
+        end
     end
 
-    --[[ Unarmed, or no off hand equipped: the preview still has to animate, so
-         test mode substitutes a plausible speed. Live play leaves it nil and the
-         bar draws empty. ]]--
+    --[[ Unarmed, no off hand equipped, nothing ranged in the slot: the preview
+         still has to animate, so test mode substitutes a plausible speed. Live
+         play leaves it nil and the bar draws empty. ]]--
     if OB.testMode and (not speed or speed <= 0) then
-        if self.hand == "off" then speed = 1.7 else speed = 2.6 end
+        speed = TEST_SPEED[self.hand]
     end
 
     return speed, start
+end
+
+-- whether this hand's cycle is running. Melee and ranged have separate toggles,
+-- and a hunter shooting is emphatically not auto attacking.
+function impl:Active()
+    if self.hand == "ranged" then return OB.swing.shooting end
+    return OB.swing.attacking
+end
+
+function impl:SetStart(now)
+    if self.hand == "ranged" then
+        OB.swing.rangedStart = now
+    elseif self.hand == "off" then
+        OB.swing.offStart = now
+    else
+        OB.swing.mainStart = now
+    end
 end
 
 function impl:OnStyle(slot)
@@ -180,7 +267,7 @@ function impl:OnUpdate(now)
     --[[ The bar shows how charged the swing is, so idle -- not auto attacking --
          reads as ready rather than empty. The swing really is available. ]]--
     local elapsed = speed
-    if OB.swing.attacking then
+    if self:Active() then
         elapsed = now - start
         if elapsed > speed then elapsed = speed end
         if elapsed < 0 then elapsed = 0 end
@@ -216,29 +303,32 @@ function impl:OnDraw()
     self:OnUpdate(GetTime())
 end
 
+--[[ Each module starts only its own cycle. The three share one state table, so
+     a module setting a flag it does not own would start a bar the user is not
+     previewing -- and stop it again when a different module's TestStop ran. ]]--
 function impl:TestStart(now)
-    OB.swing.attacking = true
-    OB.swing.mainStart = now
-    OB.swing.offStart = now
+    if self.hand == "ranged" then
+        OB.swing.shooting = true
+    else
+        OB.swing.attacking = true
+    end
+    self:SetStart(now)
 end
 
 function impl:TestStop()
-    OB.swing.attacking = false
-    OB.swing.mainStart = 0
-    OB.swing.offStart = 0
+    if self.hand == "ranged" then
+        OB.swing.shooting = false
+    else
+        OB.swing.attacking = false
+    end
+    self:SetStart(0)
 end
 
 function impl:TestStep(now)
-    local speed = self:GetSpeed()
+    local speed, start = self:GetSpeed()
     if not speed or speed <= 0 then return end
 
-    OB.swing.attacking = true
-
-    if self.hand == "off" then
-        if (now - OB.swing.offStart) >= speed then OB.swing.offStart = now end
-    else
-        if (now - OB.swing.mainStart) >= speed then OB.swing.mainStart = now end
-    end
+    if (now - start) >= speed then self:SetStart(now) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -278,3 +368,9 @@ end
 
 defineSwing("swing_main", "Main Hand", "main", "swingA", { 1.0, 0.635, 0.0, 1 })
 defineSwing("swing_off", "Off Hand", "off", "swingB", { 1.0, 0.745, 0.31, 1 })
+
+--[[ The ranged timer names no default slot, so it is never an automatic
+     occupant anywhere. It is seeded into a hunter's swingA as an assignment
+     instead, which leaves it available to a warrior with a gun without putting
+     it in front of anyone who never uses one. ]]--
+defineSwing("swing_ranged", "Ranged", "ranged", nil, { 0.45, 0.75, 1.0, 1 })

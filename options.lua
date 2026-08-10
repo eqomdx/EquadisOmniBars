@@ -38,6 +38,7 @@ local ROW_ADVANCE = {
     header = 24,
     button = 28,
     editbox = 28,
+    preview = 30,
 }
 
 OB.panel = { slot = "resource" }
@@ -130,6 +131,11 @@ OB.predicates = {
     power_mana = function()
         local m = OB.modules.power
         return m and (m.ptype == 0)
+    end,
+
+    power_rage = function()
+        local m = OB.modules.power
+        return m and (m.ptype == 1)
     end,
 }
 
@@ -473,6 +479,33 @@ local function addHeader(page, w)
     return holder
 end
 
+--[[ The chosen face, at the chosen size, with the chosen outline, spelled out.
+
+     A font is the one setting whose stored value tells you nothing about what it
+     looks like, and the panel covers the bars while it is open -- so without a
+     sample the loop is pick, close, squint, reopen. It renders through
+     OB.ApplyFont, the same call the bars use, which means it also inherits the
+     fallback to the client font and so shows a missing .ttf as plainly as the
+     bars would. ]]--
+local function addPreview(page, w)
+    local holder = CreateFrame("Frame", nil, page)
+    holder:SetWidth(1)
+    holder:SetHeight(1)
+
+    local text = page:CreateFontString(nil, "OVERLAY")
+    text:SetJustifyH("LEFT")
+    text:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+    text:SetTextColor(1, 0.82, 0)
+
+    holder.label = text
+    holder.Update = function(self)
+        self.label:SetText(w.caption)
+        OB.ApplyFont(self.label, OB.profile.fontSize)
+    end
+
+    return holder
+end
+
 -- ---------------------------------------------------------------------------
 -- rows
 -- ---------------------------------------------------------------------------
@@ -520,6 +553,8 @@ local function describeRow(opt, scope, moduleId)
         w.withAlpha = opt[4]
     elseif kind == "header" then
         w.kind = "header"
+    elseif kind == "preview" then
+        w.kind = "preview"
     else
         w.kind = "list"
         w.values = kind
@@ -538,6 +573,7 @@ local OFFSETS = {
     header = { 0, 0 },
     button = { 4, -2 },
     editbox = { 8, -4 },
+    preview = { 4, -6 },
 }
 
 local function place(page, widget, w, column)
@@ -564,6 +600,8 @@ local function buildRow(page, w, column)
         widget = addSwatch(page, w)
     elseif w.kind == "header" then
         widget = addHeader(page, w)
+    elseif w.kind == "preview" then
+        widget = addPreview(page, w)
     else
         widget = addDropDown(page, w)
     end
@@ -663,6 +701,7 @@ local generalRight = {
     { "Font", "font", OB.fonts, 150 },
     { "Font Size", "fontSize", "slider", 6, 24, 1 },
     { "Font Outline", "fontOutline", "boolean" },
+    { "Aa Bb Cc 0123456789", "__preview_font", "preview" },
 }
 
 local slotGeometry = {
@@ -688,10 +727,14 @@ local slotGeometry = {
 
 OB.optionIndex = { global = {}, slot = {}, modules = {} }
 
+-- decoration carries a caption and no value, so it has nothing to offer the
+-- prompt and would only clutter the generated help
+local decorative = { header = true, preview = true }
+
 local function indexRows(rows, scope, moduleId, target)
     for i = 1, table.getn(rows) do
         local w = describeRow(rows[i], scope, moduleId)
-        if w.kind ~= "header" then target[w.key] = w end
+        if not decorative[w.kind] then target[w.key] = w end
     end
 end
 

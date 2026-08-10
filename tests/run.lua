@@ -55,7 +55,8 @@ end
 local files = {
     "core.lua", "config.lua", "render.lua", "layout.lua", "hud.lua",
     "modules/power.lua", "modules/combopoints.lua", "modules/swing.lua",
-    "modules/health.lua", "options.lua", "slash.lua",
+    "modules/health.lua", "modules/range.lua", "modules/druidmana.lua",
+    "options.lua", "slash.lua",
 }
 
 local function loadAddon()
@@ -80,7 +81,23 @@ local function boot(class, powerType, opts)
     Stub.player.powerMax = opts.powerMax or 100
     Stub.player.combo = 0
     Stub.player.offSpeed = opts.offSpeed or 1.7
+    Stub.player.rangedSpeed = opts.rangedSpeed or 2.9
+    Stub.player.buffs = opts.buffs or {}
     Stub.loadedAddons = opts.loadedAddons or {}
+
+    -- everything the range and druid mana modules read from the world
+    Stub.player.hasTarget = opts.hasTarget and true or false
+    Stub.player.targetDistance = opts.distance or 0
+    Stub.player.stats = opts.stats or { 20, 20, 20, 100, 80 }
+    Stub.player.spellbook = opts.spellbook or {}
+    Stub.player.spellCount = opts.spellCount or 0
+    Stub.player.talents = opts.talents or {}
+    Stub.tooltips = opts.tooltips or {}
+    Stub.interactRefuses = false
+    Stub.actionRange = opts.actionRange
+
+    -- a client mod either injected UnitXP before Lua ran or it did not
+    Stub.SetUnitXP(opts.unitXP)
 
     --[[ Every boot starts from an empty saved-variables table unless a test
          hands one in deliberately. Sharing one across tests looks convenient and
@@ -100,16 +117,30 @@ end
 -- 1. every class boots, and lands on the right occupants
 -- ---------------------------------------------------------------------------
 
+--[[ aux is where the two Phase 2 modules land. Every class gets the range
+     readout there except a druid, whose secondary mana outranks it, and a
+     hunter, whose range readout is already in the points slot -- one module
+     never occupies two slots, so the automatic occupant of aux loses to the
+     explicit assignment and the slot is left empty. ]]--
 local expected = {
-    WARRIOR = { power = 1, points = nil,           swingB = "swing_off" },
-    PALADIN = { power = 0, points = nil,           swingB = "swing_off" },
-    HUNTER  = { power = 0, points = nil,           swingB = nil },
-    ROGUE   = { power = 3, points = "combopoints", swingB = "swing_off" },
-    PRIEST  = { power = 0, points = nil,           swingB = "swing_off" },
-    SHAMAN  = { power = 0, points = nil,           swingB = "swing_off" },
-    MAGE    = { power = 0, points = nil,           swingB = "swing_off" },
-    WARLOCK = { power = 0, points = nil,           swingB = "swing_off" },
-    DRUID   = { power = 3, points = "combopoints", swingB = "swing_off" },
+    WARRIOR = { power = 1, points = nil,           swingB = "swing_off",
+                swingA = "swing_main",  aux = "range" },
+    PALADIN = { power = 0, points = nil,           swingB = "swing_off",
+                swingA = "swing_main",  aux = "range" },
+    HUNTER  = { power = 0, points = "range",       swingB = nil,
+                swingA = "swing_ranged", aux = nil },
+    ROGUE   = { power = 3, points = "combopoints", swingB = "swing_off",
+                swingA = "swing_main",  aux = "range" },
+    PRIEST  = { power = 0, points = nil,           swingB = "swing_off",
+                swingA = "swing_main",  aux = "range" },
+    SHAMAN  = { power = 0, points = nil,           swingB = "swing_off",
+                swingA = "swing_main",  aux = "range" },
+    MAGE    = { power = 0, points = nil,           swingB = "swing_off",
+                swingA = "swing_main",  aux = "range" },
+    WARLOCK = { power = 0, points = nil,           swingB = "swing_off",
+                swingA = "swing_main",  aux = "range" },
+    DRUID   = { power = 3, points = "combopoints", swingB = "swing_off",
+                swingA = "swing_main",  aux = "druidmana" },
 }
 
 local order = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
@@ -138,9 +169,10 @@ for i = 1, table.getn(order) do
 
     eq(occupant("resource"), "power", "resource slot holds power")
     eq(occupant("health"), "health", "health slot holds health")
-    eq(occupant("swingA"), "swing_main", "swingA holds main hand")
+    eq(occupant("swingA"), want.swingA, "swingA occupant")
     eq(occupant("swingB"), want.swingB, "swingB occupant")
     eq(occupant("points"), want.points, "points occupant")
+    eq(occupant("aux"), want.aux, "aux occupant")
 
     -- the whole promise of the slot model: same rectangles everywhere
     local slots = OB.profile.slots
@@ -475,11 +507,24 @@ OB.AssignSlot("points", "none")
 OB.BindSlots()
 check(OB.bound.points == nil, "none empties a slot")
 
--- a hunter ships with range in the points slot; it stays empty until the module
--- exists, rather than erroring
+-- the hunter defaults are seeded data, not a branch in the resolver
 OB = boot("HUNTER", 0)
 eq(OB.profile.assign.HUNTER.points, "range", "the hunter default seeds a range assignment")
-check(OB.bound.points == nil, "an assignment to a module that does not exist yet is simply empty")
+eq(OB.bound.points and OB.bound.points.id, "range", "and it resolves to the module")
+eq(OB.bound.swingA and OB.bound.swingA.id, "swing_ranged",
+        "a hunter's swing slot holds the ranged timer")
+
+--[[ Both the explicit points assignment and the automatic occupant of aux
+     resolve to the range module. Slot order settles it: points is bound first,
+     so the explicit assignment wins and aux is left empty rather than the two
+     slots sharing one descriptor. ]]--
+check(OB.bound.aux == nil, "a module already placed does not also fill a later slot")
+eq(OB.modules.range.slotId, "points", "and it knows which slot it actually holds")
+
+-- an assignment naming a module that does not exist is simply an empty slot
+OB.profile.assign.HUNTER.swingB = "not_a_module"
+OB.BindSlots()
+check(OB.bound.swingB == nil, "an unknown module id leaves the slot empty rather than erroring")
 
 -- ---------------------------------------------------------------------------
 -- 11. events are registered from the bound set, not hardcoded
@@ -747,6 +792,32 @@ if check1 then
     eq(OB.profile.locked, not before, "clicking a checkbox writes the config")
 end
 
+--[[ The font preview is decoration: it carries a caption and no value, so it
+     renders on the page and stays out of the generated slash help, where an
+     option nobody can set would only be noise. ]]--
+check(OB.optionIndex.global["__preview_font"] == nil,
+        "the preview row is not offered as a slash option")
+
+OB.profile.font = OB.fontIndex["Continuum"] or 1
+OB.profile.fontName = OB.fonts[OB.profile.font]
+OB.profile.fontSize = 18
+OB.RefreshPanel()
+
+local previewRow
+for i = 1, table.getn(OB.settings.categories) do
+    local page = OB.settings.categories[i].page
+    for r = 1, table.getn(page.rows) do
+        if page.rows[r].kind == "preview" then previewRow = page.rows[r] end
+    end
+end
+
+check(previewRow ~= nil, "the General page carries a font preview")
+if previewRow then
+    local face, size = previewRow.label:GetFont()
+    eq(face, OB.fontPaths[OB.profile.font], "the preview renders in the chosen face")
+    eq(size, 18, "at the chosen size")
+end
+
 -- a slider writes through, honouring its factor
 local scale = _G["EqOBSlider_global_x_scale"]
 check(scale ~= nil, "the Scale slider exists")
@@ -925,7 +996,369 @@ try("restack leaves a sane layout", function()
 end)
 
 -- ---------------------------------------------------------------------------
--- 20. a long soak, to catch anything that only fails on the hundredth frame
+-- 20. bar ticks
+-- ---------------------------------------------------------------------------
+
+context = "ticks: "
+OB = boot("WARRIOR", 1)
+
+local tickBar = OB.modules.power.frame
+local tickWidth = tickBar:GetWidth()
+
+OB.SetBarTick(tickBar, 1, 0.5, false, 1, 1, 1, 1)
+check(tickBar.ticks and tickBar.ticks[1], "a tick is built on demand")
+check(tickBar.ticks[1].shown, "and shown once placed")
+near(tickBar.ticks[1].points[1][4], tickWidth * 0.5, 0.01,
+        "a tick sits at its fraction of the drawn width")
+
+-- the same discipline as the fill and the spark: measured off the bar, and
+-- mirrored rather than reversed when flipped
+OB.SetBarTick(tickBar, 1, 0.25, true, 1, 1, 1, 1)
+near(tickBar.ticks[1].points[1][4], -(tickWidth * 0.25), 0.01,
+        "a flipped tick measures in from the other end")
+
+OB.SetBarTick(tickBar, 1, nil, false, 1, 1, 1, 1)
+check(not tickBar.ticks[1].shown, "no fraction hides the tick")
+
+-- ---------------------------------------------------------------------------
+-- 21. the range readout picks a backend the client can actually run
+-- ---------------------------------------------------------------------------
+
+context = "range backend: "
+
+OB = boot("HUNTER", 0)
+eq(OB.modules.range.backend.id, "bands",
+        "with no distance API the readout falls back to bands")
+eq(OB.modules.range.frame.visible, 4, "and draws four segments")
+
+OB = boot("HUNTER", 0, { unitXP = true })
+eq(OB.modules.range.backend.id, "precise",
+        "a client that can measure gets the precise readout")
+eq(OB.modules.range.frame.visible, 1, "which is one continuous bar")
+
+-- the surplus segments are parked, not destroyed, so the shape can change back
+check(OB.modules.range.frame.count == 4, "the frames the shape does not need still exist")
+check(not OB.modules.range.frame.bars[4]:IsShown(), "they are simply hidden")
+
+-- a forced backend that cannot run here falls back rather than drawing nothing
+OB.profile.modules.range.backend = "precise"
+Stub.SetUnitXP(false)
+OB.modules.range:Probe()
+eq(OB.modules.range.backend.id, "bands", "a forced backend that cannot run falls back")
+eq(OB.modules.range.frame.visible, 4, "and the shape follows it back")
+
+--[[ Forcing a backend that cannot run usually falls back to the one already in
+     use, so a message keyed off a *change* of backend would say nothing in the
+     one case where the user is waiting to be told something. ]]--
+OB = boot("HUNTER", 0)
+local chatBefore = table.getn(Stub.chat)
+OB.profile.modules.range.backend = "precise"
+OB.modules.range:Probe()
+check(table.getn(Stub.chat) > chatBefore,
+        "forcing an unavailable backend says so even when the fallback is unchanged")
+
+-- and does not keep saying it on every loading screen
+chatBefore = table.getn(Stub.chat)
+OB.modules.range:Probe()
+Stub.FireEvent("PLAYER_ENTERING_WORLD")
+eq(table.getn(Stub.chat), chatBefore, "but only once")
+
+-- the action backend is unavailable until it is told which action to watch
+OB.profile.modules.range.backend = "action"
+OB.modules.range:Probe()
+eq(OB.modules.range.backend.id, "bands", "the action backend needs a slot to watch")
+
+OB.profile.modules.range.actionSlot = 25
+OB.modules.range:Probe()
+eq(OB.modules.range.backend.id, "action", "and runs once it has one")
+
+--[[ Capture arms a wrapper around the global UseAction -- there is no
+     hooksecurefunc in 1.12 -- which records the next action pressed and then
+     stands down. The wrapper must still call whatever it displaced, or arming
+     capture once would break the player's action bars for the session. ]]--
+local capture = OB.optionIndex.modules.range.capture
+OB.ApplyOption(capture, true)
+check(OB.modules.range.capturing, "arming capture watches for the next action")
+
+UseAction(42, nil, nil)
+eq(OB.profile.modules.range.actionSlot, 42, "pressing an action captures its slot")
+eq(Stub.lastAction, 42, "and the action itself still fires")
+check(not OB.modules.range.capturing, "capture stands down after one press")
+check(not OB.profile.modules.range.capture, "and the checkbox clears itself")
+
+UseAction(7, nil, nil)
+eq(OB.profile.modules.range.actionSlot, 42, "a later press is not captured")
+eq(Stub.lastAction, 7, "but still fires")
+
+-- ---------------------------------------------------------------------------
+-- 22. bands, including the answer that is not an answer
+-- ---------------------------------------------------------------------------
+
+context = "range bands: "
+OB = boot("HUNTER", 0, { hasTarget = true })
+
+local range = OB.modules.range
+
+local function readRange(distance)
+    Stub.player.targetDistance = distance
+    range.nextPoll = 0
+    Stub.Tick(0.05, 2)
+    return range.band
+end
+
+eq(readRange(5), 1, "inside duel range is the dead zone")
+eq(readRange(10.5), 2, "past duel but inside trade is the dead zone edge")
+eq(readRange(20), 3, "past trade but inside inspect is shootable")
+eq(readRange(40), 4, "past inspect is out of range")
+
+--[[ CheckInteractDistance answers nil for a unit you cannot interact with, which
+     every hostile mob is. Reading that as an error rather than as "too far"
+     would blank the readout on precisely the targets it exists for. ]]--
+Stub.interactRefuses = true
+eq(readRange(5), 4, "a unit that refuses interaction reads as far, not as an error")
+Stub.interactRefuses = false
+
+Stub.player.hasTarget = false
+range.nextPoll = 0
+Stub.Tick(0.05, 2)
+check(range.band == nil, "no target means no reading at all")
+
+--[[ The preview has to walk every band the live readout can produce, including
+     the ~1.2 yard sliver between duel and trade range. A sweep coarse enough to
+     step over it would leave a user convinced that band is broken. ]]--
+OB.SetTestMode(true)
+
+local bandsSeen = {}
+for i = 1, 400 do
+    Stub.Tick(0.05, 1)
+    if range.band then bandsSeen[range.band] = true end
+end
+
+OB.SetTestMode(false)
+
+local bandsCount = 0
+for _ in pairs(bandsSeen) do bandsCount = bandsCount + 1 end
+eq(bandsCount, 4, "the preview walks every band, narrow ones included")
+
+-- ---------------------------------------------------------------------------
+-- 23. the precise readout
+-- ---------------------------------------------------------------------------
+
+context = "range precise: "
+OB = boot("HUNTER", 0, { unitXP = true, hasTarget = true })
+
+range = OB.modules.range
+local rangeCfg = OB.profile.modules.range
+rangeCfg.maxRange = 40
+rangeCfg.deadZone = 8
+
+local rangeBar = range.frame.bars[1]
+
+local function readPrecise(distance)
+    Stub.player.targetDistance = distance
+    range.nextPoll = 0
+    Stub.Tick(0.05, 2)
+    return range.band
+end
+
+eq(readPrecise(0), 1, "point blank is inside the dead zone")
+eq(range.yards, 0, "and the distance is reported, not just the band")
+near(rangeBar.fill.width, rangeBar:GetWidth(), 0.5, "adjacent fills the bar")
+
+eq(readPrecise(20), 3, "past the dead zone and inside the maximum is shootable")
+near(rangeBar.fill.width, rangeBar:GetWidth() * 0.5, 0.5,
+        "half the maximum range is half a bar")
+
+eq(readPrecise(80), 4, "past the maximum is out of range")
+check(not rangeBar.fill.shown, "and the bar is empty rather than negative")
+
+check(rangeBar.ticks and rangeBar.ticks[1] and rangeBar.ticks[1].shown,
+        "the dead zone edge is marked")
+near(rangeBar.ticks[1].points[1][4], rangeBar:GetWidth() * (1 - 8 / 40), 0.5,
+        "at the point the fill crosses it")
+
+-- ---------------------------------------------------------------------------
+-- 24. the ranged swing timer
+-- ---------------------------------------------------------------------------
+
+context = "ranged swing: "
+OB = boot("HUNTER", 0, { rangedSpeed = 3.0 })
+
+Stub.FireEvent("START_AUTOREPEAT_SPELL")
+check(OB.swing.shooting, "autorepeat starts the ranged cycle")
+local anchor = OB.swing.rangedStart
+
+--[[ CHAT_MSG_SPELL_SELF_DAMAGE carries every spell, not just the auto shot, and
+     this phase cannot read the source out of the message. It is filtered by
+     timing instead: a shot can only land at the end of its own cycle. ]]--
+Stub.Tick(0.5, 1)
+Stub.FireEvent("CHAT_MSG_SPELL_SELF_DAMAGE")
+eq(OB.swing.rangedStart, anchor,
+        "an instant cast early in the cycle does not move the anchor")
+
+Stub.Tick(0.5, 5)
+Stub.FireEvent("CHAT_MSG_SPELL_SELF_DAMAGE")
+check(OB.swing.rangedStart > anchor, "a shot landing late in the cycle re-anchors it")
+
+-- melee and ranged are separate cycles with separate toggles
+check(not OB.swing.attacking, "shooting is not auto attacking")
+
+Stub.FireEvent("STOP_AUTOREPEAT_SPELL")
+check(not OB.swing.shooting, "stopping autorepeat stops the cycle")
+
+-- ---------------------------------------------------------------------------
+-- 25. rage decay is measured, never assumed
+-- ---------------------------------------------------------------------------
+
+context = "rage decay: "
+OB = boot("WARRIOR", 1, { power = 100, powerMax = 100 })
+
+local rage = OB.modules.power
+OB.profile.modules.power.rageDecay = true
+
+local function setRage(value)
+    Stub.player.power = value
+    Stub.Tick(0.5, 1)
+end
+
+-- rage sitting still does not start a run, or a bar parked at full would grow a
+-- marker pointing at a number it is never going to reach
+setRage(100)
+check(rage.decayFrom == nil, "rage holding still does not start a run")
+
+setRage(98)     -- the first actual fall anchors it
+setRage(96)
+check(rage.rageRate ~= nil, "a run of falling rage yields a rate")
+near(rage.rageRate, 4, 0.01, "and it is the rate that was actually fed in")
+
+-- spending rage is a cost, not the bar draining. Averaging it in would put the
+-- marker on the floor.
+rage.rageRate, rage.decayFrom = nil, nil
+setRage(100)
+setRage(60)
+check(rage.rageRate == nil, "a spend does not become a decay rate")
+check(rage.decayFrom == nil, "and it ends the run")
+
+rage.decayFrom = { at = Stub.Clock(), value = 60 }
+setRage(70)
+check(rage.decayFrom == nil, "a gain ends the run too")
+
+-- the marker points at where the rate says rage will be, and only while it falls
+rage.rageRate = 3
+rage.decayFrom = { at = Stub.Clock(), value = 70 }
+OB.profile.modules.power.rageDecaySeconds = 5
+OB.SetDirty(rage)
+Stub.Tick(0.05, 2)
+
+local rageTick = rage.frame.ticks and rage.frame.ticks[1]
+check(rageTick and rageTick.shown, "the marker is drawn while rage is falling")
+near(rageTick.points[1][4], rage.frame:GetWidth() * ((70 - 15) / 100), 0.5,
+        "at the projected value")
+
+rage.decayFrom = nil
+OB.SetDirty(rage)
+Stub.Tick(0.05, 2)
+check(not rageTick.shown, "and hidden once it stops falling")
+
+-- ---------------------------------------------------------------------------
+-- 26. the druid secondary mana estimate
+-- ---------------------------------------------------------------------------
+
+context = "druid mana: "
+
+local druidWorld = {
+    power = 3000, powerMax = 3000,
+    stats = { 20, 20, 20, 120, 100 },        -- 4 intellect, 5 spirit
+    spellbook = { "Interface\\Icons\\Ability_Racial_BearForm" },
+    spellCount = 1,
+    tooltips = {
+        spell1 = { "Bear Form", "60 Mana" },
+        item1 = { "A Helm", "Equip: Restores 10 mana per 5 sec." },
+    },
+}
+
+OB = boot("DRUID", 0, druidWorld)
+local mana = OB.modules.druidmana
+
+eq(OB.bound.aux and OB.bound.aux.id, "druidmana",
+        "a druid's spare slot holds the mana estimate, outranking the range readout")
+eq(mana.shiftCost, 60, "the shapeshift cost is read off the spellbook tooltip")
+
+--[[ ceil((10 * 2) / 5): mana per five seconds restated per two second tick. The
+     source library's accumulator was `extra or 0 + n`, which is `extra or (0+n)`
+     -- and extra starts at 0, which is truthy -- so gear never counted at all. ]]--
+eq(mana.gearTick, 4, "gear mana per five is counted, and restated per tick")
+
+eq(mana.max, 3000, "caster form seeds the estimate from the real pool")
+eq(mana.cur, 3000, "including the current value")
+check(mana.seeded, "and marks the estimate as having a baseline")
+
+-- shifting costs mana, and once shifted nothing reports it any more
+Stub.player.powerType = 3
+Stub.FireEvent("UPDATE_SHAPESHIFT_FORMS")
+eq(mana.cur, 2940, "shifting pays the cost the tooltip named")
+
+--[[ While shifted UNIT_MANA still fires, for energy -- on the same two second
+     cadence mana regeneration runs on. The event nobody can use for mana is
+     used as the clock for it. ]]--
+Stub.FireEvent("UNIT_MANA", "player")
+eq(mana.cur, 2940 + (math.ceil(100 / 5) + 15) + 4,
+        "each tick accrues spirit regeneration plus gear")
+
+-- intellect moving while shifted moves the ceiling with it
+Stub.player.stats[4] = 130
+Stub.FireEvent("UNIT_MAXMANA", "player")
+eq(mana.max, 3000 + (10 * 15), "intellect gained while shifted raises the maximum")
+
+Stub.player.powerType = 0
+Stub.player.power = 1000
+Stub.FireEvent("UPDATE_SHAPESHIFT_FORMS")
+eq(mana.cur, 1000, "returning to caster form resyncs from an API telling the truth")
+
+--[[ Logging in already shifted means the real pool has never been visible this
+     session. The source library shipped a maximum of 10 for that case and drew a
+     full bar on it; there is nothing to estimate from, so nothing is drawn. ]]--
+OB = boot("DRUID", 3, druidWorld)
+mana = OB.modules.druidmana
+OB.profile.slots.aux.hide = false
+OB.Refresh(true)
+Stub.Tick(0.05, 2)
+
+check(not mana.seeded, "a druid who logs in shifted has no baseline")
+check(not mana.frame:IsShown(), "and the bar stays hidden rather than inventing one")
+
+-- ---------------------------------------------------------------------------
+-- 27. the aux slot migration
+-- ---------------------------------------------------------------------------
+
+context = "migration: "
+
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3, { savedVariables = {
+    version = 1,
+    migrated = { roguebars = true },
+    chars = { ["Turtle WoW - TestROGUE"] = "Default" },
+    profiles = { Default = { schema = 1, assign = { ["*"] = { aux = "none" } } } },
+} })
+
+eq(OB.profile.schema, 2, "an old profile is migrated forward")
+eq(OB.profile.assign["*"].aux, "auto",
+        "the aux sentinel is re-read now that a module can occupy the slot")
+eq(OB.bound.aux and OB.bound.aux.id, "range", "so the slot fills")
+
+-- an explicit choice made since is not overwritten
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3, { savedVariables = {
+    version = 1,
+    migrated = { roguebars = true },
+    chars = { ["Turtle WoW - TestROGUE"] = "Default" },
+    profiles = { Default = { schema = 2, assign = { ["*"] = { aux = "none" } } } },
+} })
+
+eq(OB.profile.assign["*"].aux, "none", "a profile already on the new schema is left alone")
+
+-- ---------------------------------------------------------------------------
+-- 28. a long soak, to catch anything that only fails on the hundredth frame
 -- ---------------------------------------------------------------------------
 
 context = "soak: "

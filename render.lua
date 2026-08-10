@@ -233,6 +233,65 @@ function OB.SetBarOverlay(bar, fraction, flip, r, g, b, a)
     overlay:Show()
 end
 
+--[[ A 1px full-height marker at a fixed point along the bar: the range readout's
+     dead zone edge, the rage decay projection.
+
+     Ticks are indexed because a bar may carry several, and they are built on
+     demand like the spark and the overlay -- most bars never grow one.
+
+     They live on textLayer rather than on the bar, so a tick sits above the fill
+     and above the border. A tick under the fill is invisible exactly when the
+     bar is full, which is when it is being read. ]]--
+function OB.BarTick(bar, index)
+    bar.ticks = bar.ticks or {}
+
+    if not bar.ticks[index] then
+        local tick = bar.textLayer:CreateTexture(nil, "OVERLAY")
+        tick:SetWidth(1)
+        tick:Hide()
+        bar.ticks[index] = tick
+    end
+
+    return bar.ticks[index]
+end
+
+--[[ Place tick `index` at `fraction` along the bar.
+
+     The span is bar:GetWidth() for the same reason the spark's is -- see
+     OB.DrawSpark. A tick measured against the configured width drifts away from
+     the fill it is meant to annotate as soon as the two disagree. ]]--
+function OB.SetBarTick(bar, index, fraction, flip, r, g, b, a)
+    local tick = OB.BarTick(bar, index)
+
+    if not fraction then
+        tick:Hide()
+        return
+    end
+
+    if fraction < 0 then fraction = 0 end
+    if fraction > 1 then fraction = 1 end
+
+    local x = fraction * bar:GetWidth()
+
+    tick:ClearAllPoints()
+    if flip then
+        tick:SetPoint("TOPRIGHT", bar, "TOPRIGHT", -x, 0)
+        tick:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -x, 0)
+    else
+        tick:SetPoint("TOPLEFT", bar, "TOPLEFT", x, 0)
+        tick:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", x, 0)
+    end
+
+    tick:SetTexture(r, g, b, a or 1)
+    tick:SetWidth(1)
+    tick:Show()
+end
+
+function OB.HideBarTicks(bar)
+    if not bar.ticks then return end
+    for i = 1, table.getn(bar.ticks) do bar.ticks[i]:Hide() end
+end
+
 --[[ Sweep the ticker spark across the bar.
 
      Two things here have both been the cause of a bug that looked like something
@@ -350,9 +409,21 @@ end
      The segment width is floored to a whole pixel so the row sits flush with no
      sub-pixel overlap. When a border is on, the segments are spaced apart inside
      the same total width -- otherwise each point's border stacks on its
-     neighbour's, which reads as a double-thick line between them. ]]--
-function OB.StyleSegments(group, slot)
-    local count = group.count
+     neighbour's, which reads as a double-thick line between them.
+
+     `shown` lays out fewer than were built and hides the rest, which is how one
+     frame serves a module whose shape depends on something only known at
+     runtime: the range readout is four bands on one client and a single
+     continuous bar on another. Growing and shrinking the frame set instead would
+     mean creating and destroying frames mid-session, which 1.12 does not really
+     allow -- so the maximum is built once and the surplus is parked. ]]--
+function OB.StyleSegments(group, slot, shown)
+    local count = shown or group.count
+    if count < 1 then count = 1 end
+    if count > group.count then count = group.count end
+
+    group.visible = count
+
     local pad = OB.BorderPad()
 
     local gap = 0
@@ -374,6 +445,12 @@ function OB.StyleSegments(group, slot)
         else
             bar:SetPoint("TOPLEFT", group.bars[i - 1], "TOPRIGHT", gap, 0)
         end
+
+        bar:Show()
+    end
+
+    for i = count + 1, group.count do
+        group.bars[i]:Hide()
     end
 
     group.segmentWidth = segment

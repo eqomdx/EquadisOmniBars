@@ -1,1 +1,13 @@
+# Anything that is not part of the addon itself stays out of the repo: working
+# notes, tool output, editor and assistant state. A plain clone into
+# Interface\AddOns should contain exactly what the game loads, plus the tests
+# and the public README.
+
+# assistant / editor state
 .claude/
+
+# knowledge graph output -- generated, and belongs under D:\Graphify\
+graphify-out/
+
+# session handover notes: local working document, full of absolute paths
+HANDOFF.md
