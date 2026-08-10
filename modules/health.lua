@@ -44,6 +44,8 @@ local M = OB.RegisterModule({
         { "Low Colour", "lowColor", "color", true, nil, nil, nil, "lowEnable" },
     },
 
+    requires = { "UnitHealth", "UnitHealthMax" },
+
     events = {
         "UNIT_HEALTH", "UNIT_MAXHEALTH",
         "PLAYER_ENTERING_WORLD", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST",

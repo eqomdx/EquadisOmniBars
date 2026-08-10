@@ -174,6 +174,12 @@ local M = OB.RegisterModule({
         { "Inactive Opacity", "dim", "slider", 0, 100, 5, 0.01 },
     },
 
+    --[[ UnitXP is deliberately absent. It is *expected* to be missing on a plain
+         client -- that is the whole reason the backend is probed and has two
+         fallbacks -- so listing it would make every install without SuperWoW
+         report a failure for working exactly as designed. ]]--
+    requires = { "CheckInteractDistance", "IsActionInRange", "UnitExists" },
+
     events = { "PLAYER_ENTERING_WORLD", "PLAYER_TARGET_CHANGED" },
 })
 

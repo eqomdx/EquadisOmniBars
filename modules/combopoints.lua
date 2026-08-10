@@ -42,6 +42,8 @@ local M = OB.RegisterModule({
         { "Hide At Zero Points", "hideWhenZero", "boolean" },
     },
 
+    requires = { "GetComboPoints" },
+
     events = { "PLAYER_COMBO_POINTS", "PLAYER_ENTERING_WORLD", "PLAYER_TARGET_CHANGED" },
 })
 

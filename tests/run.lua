@@ -56,7 +56,7 @@ local files = {
     "core.lua", "config.lua", "render.lua", "layout.lua", "hud.lua",
     "modules/power.lua", "modules/combopoints.lua", "modules/swing.lua",
     "modules/health.lua", "modules/range.lua", "modules/druidmana.lua",
-    "options.lua", "slash.lua",
+    "options.lua", "slash.lua", "selftest.lua",
 }
 
 local function loadAddon()
@@ -937,6 +937,54 @@ if lowColor then
     OB.profile.modules.health.lowEnable = false
 end
 
+--[[ The shape the panel is supposed to have, asserted directly.
+
+     This is the exact symptom that shipped: one sidebar entry and no rows. It
+     was invisible to the suite because nothing checked that the panel had been
+     built *completely* -- only that individual controls worked once it had. ]]--
+eq(table.getn(OB.settings.categories), 4, "the panel has all four categories")
+
+local totalRows, unplaced, brokenRows = 0, 0, 0
+for i = 1, table.getn(OB.settings.categories) do
+    local cat = OB.settings.categories[i]
+    local n = table.getn(cat.page.rows)
+
+    check(n > 0, "the " .. cat.name .. " page has rows")
+    totalRows = totalRows + n
+
+    for r = 1, n do
+        local widget = cat.page.rows[r]
+        if widget.broken then brokenRows = brokenRows + 1 end
+        if widget.visible and widget:GetNumPoints() == 0 then
+            unplaced = unplaced + 1
+        end
+    end
+end
+
+eq(brokenRows, 0, "no row gave up during a healthy build")
+eq(unplaced, 0, "every visible row is anchored")
+check(totalRows > 50, "the panel built a plausible number of rows")
+
+-- every font string the addon made has a font. The bug that shipped, as a check.
+local unfonted = 0
+for i = 1, table.getn(OB.texts) do
+    if not OB.texts[i]:GetFont() then unfonted = unfonted + 1 end
+end
+eq(unfonted, 0, "every registered font string has a font")
+check(table.getn(OB.texts) > 0, "and the registry is not empty")
+
+-- every option the prompt offers has a control behind it
+local orphaned = 0
+local function crossCheck(index)
+    for key, w in pairs(index) do
+        if not OB.widgets[OB.WidgetKey(w)] then orphaned = orphaned + 1 end
+    end
+end
+crossCheck(OB.optionIndex.global)
+crossCheck(OB.optionIndex.slot)
+for id, index in pairs(OB.optionIndex.modules) do crossCheck(index) end
+eq(orphaned, 0, "every indexed option has a control on the panel")
+
 -- closing the panel stops the preview
 OB.SetTestMode(true)
 OB.settings:Hide()
@@ -1358,7 +1406,244 @@ OB = boot("ROGUE", 3, { savedVariables = {
 eq(OB.profile.assign["*"].aux, "none", "a profile already on the new schema is left alone")
 
 -- ---------------------------------------------------------------------------
--- 28. a long soak, to catch anything that only fails on the hundredth frame
+-- 28. the panel fails one control at a time
+--
+-- A settings panel is a hundred small independent controls, so the blast radius
+-- of one bad control ought to be that control. It was not: a font string with no
+-- font object threw inside one row, which took its page, which took the whole
+-- build, which left a window with one category and no rows -- cached as the
+-- panel for the rest of the session.
+--
+-- Faults are injected by wrapping CreateFrame to throw for one chosen name,
+-- which is the same seam the real bug came through.
+-- ---------------------------------------------------------------------------
+
+context = "fail-soft: "
+
+local realCreateFrame = CreateFrame
+
+-- throw for one frame name, leave every other creation alone
+local function breakFrame(target)
+    CreateFrame = function(ftype, name, parent, template)
+        if name == target then error("injected fault in " .. tostring(name), 0) end
+        return realCreateFrame(ftype, name, parent, template)
+    end
+end
+
+local function unbreakFrame()
+    CreateFrame = realCreateFrame
+end
+
+-- (1) a construction fault costs exactly one row
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+breakFrame("EqOBCheck_global_x_audible")
+try("a bad control does not stop the build", function() OB.TogglePanel() end)
+unbreakFrame()
+
+check(OB.settings ~= nil, "the panel is still built")
+eq(table.getn(OB.settings.categories), 4, "and still has all four categories")
+check(OB.widgets["global::audible"] == nil, "the failed row was dropped, not half-placed")
+eq(table.getn(OB.panelFaults), 1, "exactly one fault was recorded")
+check(string.find(OB.panelFaults[1].label or "", "audible") ~= nil,
+        "and it names the control that failed")
+
+-- (2) a page fault costs that page's remainder, not the pages after it.
+--     This is the regression, in the exact shape it shipped.
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+breakFrame("EqOBProfileName")
+try("a bad page does not stop the panel", function() OB.TogglePanel() end)
+unbreakFrame()
+
+check(OB.settings ~= nil, "the panel survives a page that throws")
+eq(table.getn(OB.settings.categories), 4, "every category still exists")
+check(OB.settings.btnTest ~= nil, "the chrome after the pages is still built")
+eq(OB.settings.selected, "General", "and a category is selected")
+
+-- (3) an update fault hides one row, and says so exactly once
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+
+--[[ A list whose values function throws reaches the fault through Update rather
+     than through construction, which is the other half of the guard. ]]--
+table.insert(OB.modules.health.options,
+        { "Exploding Row", "__boom", function() error("boom", 0) end })
+OB.optionIndex.modules.health["__boom"] = nil
+
+try("a row that throws on update does not stop the panel", function()
+    OB.TogglePanel()
+end)
+
+local boom = OB.widgets["module:health:__boom"]
+check(boom ~= nil, "the exploding row was built")
+if boom then
+    check(boom.broken, "a row that throws on update is marked broken")
+    check(not boom:IsShown(), "and hidden")
+end
+
+-- the remaining rows on that page are untouched
+local healthPageOk = true
+for i = 1, table.getn(OB.settings.categories) do
+    local page = OB.settings.categories[i].page
+    for r = 1, table.getn(page.rows) do
+        local widget = page.rows[r]
+        if widget.visible and widget:GetNumPoints() == 0 then healthPageOk = false end
+    end
+end
+check(healthPageOk, "every other visible row is still anchored")
+
+--[[ The anti-spam property, and the reason `broken` is a flag rather than a
+     report: RefreshPanel runs from a slider's OnValueChanged, so a fault that
+     merely printed would say the same sentence every frame while dragging. ]]--
+local faultsAfterFirst = table.getn(OB.panelFaults)
+for i = 1, 5 do OB.RefreshPanel() end
+eq(table.getn(OB.panelFaults), faultsAfterFirst,
+        "a broken row is reported once, not on every refresh")
+
+-- (4) a fault in the chrome leaves no panel at all, rather than a corpse
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+breakFrame("EquadisOmniBarsSettings")
+try("an unbuildable panel does not raise", function() OB.TogglePanel() end)
+unbreakFrame()
+
+check(OB.settings == nil, "a failed build is not cached as the panel")
+check(type(OB.panelDead) == "string", "the reason is kept")
+
+local framesBefore = table.getn(Stub.Frames())
+try("a second attempt does not rebuild", function() OB.TogglePanel() end)
+eq(table.getn(Stub.Frames()), framesBefore,
+        "and does not leak a second set of globally named widgets")
+
+-- (5) layout is pure: running it twice with no update between changes nothing
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+OB.TogglePanel()
+
+local firstPage = OB.settings.categories[1].page
+local firstRow = firstPage.rows[1]
+local pointsBefore = firstRow:GetNumPoints()
+
+try("LayoutPage is safe to run twice", function()
+    OB.LayoutPage(firstPage)
+    OB.LayoutPage(firstPage)
+end)
+eq(firstRow:GetNumPoints(), pointsBefore, "and leaves positions stable")
+
+-- ---------------------------------------------------------------------------
+-- 29. the self-test passes on a healthy boot
+-- ---------------------------------------------------------------------------
+
+context = "selftest: "
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+
+try("the self-test runs", function() OB.RunSelfTest() end)
+check(OB.selfTestResult ~= nil, "it records a result")
+
+if OB.selfTestResult then
+    eq(OB.selfTestResult.failed, 0, "a healthy boot has no failures")
+    check(OB.selfTestResult.passed > 40, "and a plausible number of checks")
+end
+
+-- it builds the panel to check it, but must not put it on screen
+check(OB.settings ~= nil, "it builds the panel")
+check(not OB.settings:IsShown(), "without showing it")
+
+--[[ Side-effect freedom, asserted rather than asserted-in-a-comment: a check
+     that changes the thing it is checking is not one. ]]--
+local scaleBefore, lockedBefore = OB.profile.scale, OB.profile.locked
+local firstPassed = OB.selfTestResult.passed
+
+OB.RunSelfTest()
+eq(OB.profile.scale, scaleBefore, "the self-test does not touch the config")
+eq(OB.profile.locked, lockedBefore, "any of it")
+eq(OB.testMode, false, "and does not leave test mode on")
+eq(OB.selfTestResult.passed, firstPassed, "running it twice gives the same answer")
+
+-- the command seam is wired into the generated help
+Stub.chat = {}
+SlashCmdList["EQUADISOMNIBARS"]("help")
+local mentionsSelftest = false
+for i = 1, table.getn(Stub.chat) do
+    if string.find(Stub.chat[i], "selftest") then mentionsSelftest = true end
+end
+check(mentionsSelftest, "a registered command appears in the generated help")
+
+try("the command runs from the prompt", function()
+    SlashCmdList["EQUADISOMNIBARS"]("selftest")
+end)
+
+-- ---------------------------------------------------------------------------
+-- 30. the self-test detects what it exists to detect
+--
+-- A check that cannot fail is not a check. Each case below breaks one thing the
+-- real client could plausibly break, and asserts the right section noticed.
+-- ---------------------------------------------------------------------------
+
+context = "selftest detects: "
+
+local function failureMentioning(needle)
+    local result = OB.selfTestResult
+    if not result then return false end
+    for i = 1, table.getn(result.failures) do
+        if string.find(result.failures[i], needle, 1, true) then return true end
+    end
+    return false
+end
+
+-- a missing client API
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+
+local savedUnitMana = UnitMana
+UnitMana = nil
+OB.RunSelfTest()
+UnitMana = savedUnitMana
+
+check(OB.selfTestResult.failed > 0, "a missing API fails the run")
+check(failureMentioning("UnitMana"), "and the failure names it")
+
+-- a font string with no font: the bug that shipped
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+table.insert(OB.texts, OB.container:CreateFontString(nil, "OVERLAY"))
+OB.RunSelfTest()
+check(failureMentioning("font strings have no font"),
+        "an unfonted font string is caught")
+
+-- a widget that lost its anchor
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+OB.bound.resource.frame:ClearAllPoints()
+OB.RunSelfTest()
+check(failureMentioning("not anchored"), "an unanchored bar is caught")
+OB.Refresh(true)
+
+-- a value outside its own maximum
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3, { power = 100, powerMax = 100 })
+Stub.player.health = 5000
+Stub.player.healthMax = 3000
+OB.RunSelfTest()
+check(failureMentioning("out of a maximum"), "a value above its maximum is caught")
+Stub.player.health = 2400
+
+-- the backend note reports what actually happened
+EquadisOmniBarsDB = nil
+OB = boot("HUNTER", 0, { unitXP = true })
+Stub.chat = {}
+OB.RunSelfTest()
+
+local sawPrecise = false
+for i = 1, table.getn(Stub.chat) do
+    if string.find(Stub.chat[i], "Precise") then sawPrecise = true end
+end
+check(sawPrecise, "the report names the backend actually in use")
+
+-- ---------------------------------------------------------------------------
+-- 31. a long soak, to catch anything that only fails on the hundredth frame
 -- ---------------------------------------------------------------------------
 
 context = "soak: "

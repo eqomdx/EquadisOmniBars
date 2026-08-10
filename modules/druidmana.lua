@@ -102,6 +102,13 @@ local M = OB.RegisterModule({
         { "Hide In Caster Form", "hideInCaster", "boolean" },
     },
 
+    --[[ The longest list in the addon, because the estimate is assembled from
+         everything the client will still answer once it stops reporting mana. ]]--
+    requires = {
+        "UnitMana", "UnitManaMax", "UnitPowerType",
+        "UnitStat", "GetTalentInfo", "GetSpellTabInfo", "GetSpellTexture",
+    },
+
     events = {
         "PLAYER_ENTERING_WORLD",
         "UNIT_MANA", "UNIT_MAXMANA",

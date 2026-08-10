@@ -24,6 +24,20 @@ local OB = EquadisOmniBars
 
 local function p(msg) OB.Raw(msg) end
 
+--[[ Sub-commands a later file adds, keyed by the word that invokes them:
+
+       OB.commands.selftest = { help = "...", Run = function(args) ... end }
+
+     The dispatcher below is an if-chain fixed at load time, and TOC order means
+     anything that wants a command of its own loads after it. Rather than reach
+     back and edit the chain -- which is exactly the hand-maintained drift this
+     file exists to avoid -- a later file registers here and both the dispatch
+     and the generated help pick it up. Phase 4's meters join the same way.
+
+     The reserved words are matched first, so nothing appended later can shadow
+     `help` or `reset`. ]]--
+OB.commands = {}
+
 local BLUE = "|cff69ccf0"
 local WHITE = "|cffffffff"
 local GREY = "|cffcccccc"
@@ -93,6 +107,17 @@ local function showHelp()
     p("  " .. BLUE .. "/eqob profile use|new|copy|delete <name>" .. WHITE)
     p("  " .. BLUE .. "/eqob reset" .. WHITE .. " / " .. BLUE .. "reset all" .. WHITE
             .. " - this profile, or every profile")
+
+    -- listed from the registry, so a command added by a later file appears here
+    -- without this function being touched
+    local extra = {}
+    for name in pairs(OB.commands) do table.insert(extra, name) end
+    table.sort(extra)
+
+    for i = 1, table.getn(extra) do
+        local command = OB.commands[extra[i]]
+        p("  " .. BLUE .. "/eqob " .. extra[i] .. WHITE .. " - " .. (command.help or ""))
+    end
 
     p(GREEN .. "Slots:" .. WHITE .. " " .. BLUE .. "/eqob slot <id> <key> <value>")
     local ids = {}
@@ -279,6 +304,11 @@ SlashCmdList["EQUADISOMNIBARS"] = function(msg)
     if cmd == "slot" then cmdSlot(args) return end
     if cmd == "assign" then cmdAssign(args) return end
     if cmd == "profile" then cmdProfile(args) return end
+
+    -- a registered command beats a module id, because a command word is the more
+    -- specific claim on the line
+    local command = OB.commands[cmd]
+    if command then command.Run(args) return end
 
     -- a module id claims the rest of the line
     if OB.optionIndex.modules[cmd] then

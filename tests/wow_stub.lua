@@ -118,6 +118,16 @@ local function newTexture(parent, layer)
     return t
 end
 
+--[[ A FontString has no font object unless it inherited one from a template or
+     was given one with SetFont, and in 1.12 touching the text or its colour
+     before then is an error rather than a no-op.
+
+     This is modelled rather than ignored because ignoring it shipped a dead
+     settings panel with a green test suite: one `CreateFontString(nil, "OVERLAY")`
+     followed by SetTextColor threw in the real client, aborted the panel build
+     midway through a page, and the stub recorded the colour and said nothing.
+     A stub that agrees with a wrong assumption still passes -- so where the rule
+     is known, it belongs here. ]]--
 local function newFontString(parent, layer, inherits)
     local f = newObject("FontString")
     f.parent = parent
@@ -125,14 +135,29 @@ local function newFontString(parent, layer, inherits)
     defineShow(f)
     defineSize(f)
 
+    if inherits then f.font = "inherited:" .. inherits end
+
+    local function requireFont(self, what)
+        if not self.font then
+            error("FontString:" .. what .. " on a font string with no font: "
+                    .. "create it with an inherited template, or call SetFont first", 3)
+        end
+    end
+
     f.text = ""
-    f.SetText = function(self, v) self.text = v or "" end
+    f.SetText = function(self, v)
+        requireFont(self, "SetText")
+        self.text = v or ""
+    end
     f.GetText = function(self) return self.text end
     f.SetFont = function(self, path, size, flags)
         self.font, self.fontSize, self.fontFlags = path, size, flags
     end
     f.GetFont = function(self) return self.font, self.fontSize, self.fontFlags end
-    f.SetTextColor = function(self, r, g, b) self.color = { r, g, b } end
+    f.SetTextColor = function(self, r, g, b)
+        requireFont(self, "SetTextColor")
+        self.color = { r, g, b }
+    end
     f.SetJustifyH = function(self, v) self.justify = v end
     f.SetAlpha = function(self, v) self.alpha = v end
     return f
@@ -146,15 +171,15 @@ local templates = {}
 
 templates.UICheckButtonTemplate = function(frame)
     if frame.name then
-        _G[frame.name .. "Text"] = newFontString(frame, "OVERLAY")
+        _G[frame.name .. "Text"] = newFontString(frame, "OVERLAY", "GameFontNormal")
     end
 end
 
 templates.OptionsSliderTemplate = function(frame)
     if frame.name then
-        _G[frame.name .. "Low"] = newFontString(frame, "OVERLAY")
-        _G[frame.name .. "High"] = newFontString(frame, "OVERLAY")
-        _G[frame.name .. "Text"] = newFontString(frame, "OVERLAY")
+        _G[frame.name .. "Low"] = newFontString(frame, "OVERLAY", "GameFontNormal")
+        _G[frame.name .. "High"] = newFontString(frame, "OVERLAY", "GameFontNormal")
+        _G[frame.name .. "Text"] = newFontString(frame, "OVERLAY", "GameFontNormal")
     end
 end
 
@@ -171,7 +196,7 @@ templates.GameTooltipTemplate = function(frame)
 
     frame.Line = function(self, i)
         if not self.lines[i] then
-            self.lines[i] = newFontString(self, "OVERLAY")
+            self.lines[i] = newFontString(self, "OVERLAY", "GameTooltipText")
             if self.name then _G[self.name .. "TextLeft" .. i] = self.lines[i] end
         end
         return self.lines[i]

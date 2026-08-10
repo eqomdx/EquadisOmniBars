@@ -144,8 +144,15 @@ loads, once. RogueBars' own saved variables are never modified.
 /eqob profile use Raiding      use|new|copy|delete
 /eqob restack                  re-stack the occupied slots
 /eqob test                     preview every bar without a target
+/eqob selftest                 check the addon against your client
 /eqob reset                    this profile   ( reset all for every profile )
 ```
+
+`/eqob selftest` is the one to run first if something looks wrong. It verifies
+that every API each module needs exists on your client, that the bars were built
+with a size and a position, that the values they draw from are sane, which range
+backend you ended up on, and that the settings panel built completely — then
+reports pass or fail per section. It changes nothing.
 
 The panel and the prompt are generated from the same table, so anything you can
 click you can type, and neither can drift out of step with the other.
@@ -191,6 +198,12 @@ game never loads it.
 ```
 luajit tests/run.lua
 ```
+
+That half proves the addon is internally consistent. It cannot prove the client
+agrees — a stub that shares a wrong assumption passes happily, which is exactly
+how a settings panel that could not open once shipped past a green suite.
+`/eqob selftest` is the other half, and asks the questions only the real client
+can answer.
 
 Any Lua 5.1-compatible interpreter works; LuaJIT is the closest easily available
 match to the client's 5.0. For a syntax-only check, `luac -p *.lua`.

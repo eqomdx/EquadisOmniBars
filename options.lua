@@ -180,11 +180,18 @@ end
 
 OB.widgets = {}
 
--- scope, module and key together, so a slot's "flip" and a module's "flip"
--- cannot collide the way a single flat key would
-local function widgetKey(w)
+--[[ Scope, module and key together, so a slot's "flip" and a module's "flip"
+     cannot collide the way a single flat key would.
+
+     Exposed on the namespace as well as kept local, because the self-test walks
+     OB.optionIndex and asks whether each descriptor actually grew a control --
+     which is the panel bug's *symptom* rather than its cause, and so catches the
+     next one whatever causes it. ]]--
+function OB.WidgetKey(w)
     return w.scope .. ":" .. (w.module or "") .. ":" .. w.key
 end
+
+local widgetKey = OB.WidgetKey
 
 local function uniqueName(prefix, w)
     local name = prefix .. w.scope .. "_" .. (w.module or "x") .. "_" .. w.key
@@ -339,7 +346,7 @@ end
      show and hide the two together or the caption is left hanging over whatever
      row takes its place. ]]--
 local function labelFor(page, drop, caption)
-    local label = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local label = OB.NewText(page, "OVERLAY", "GameFontNormalSmall")
     label:SetPoint("BOTTOMLEFT", drop, "TOPLEFT", 20, 2)
     label:SetText(caption)
     drop.label = label
@@ -409,7 +416,7 @@ local function addSwatch(page, w)
     button.color = button:CreateTexture(nil, "ARTWORK")
     button.color:SetAllPoints(button)
 
-    button.label = page:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    button.label = OB.NewText(page, "OVERLAY", "GameFontNormalSmall")
     button.label:SetPoint("LEFT", button, "RIGHT", 6, 0)
     button.label:SetText(w.caption)
 
@@ -469,7 +476,7 @@ local function addHeader(page, w)
     holder:SetWidth(1)
     holder:SetHeight(1)
 
-    local text = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    local text = OB.NewText(page, "OVERLAY", "GameFontNormal")
     text:SetTextColor(1, 0.82, 0)
     text:SetText(w.caption)
     text:SetPoint("BOTTOMLEFT", holder, "TOPLEFT", 0, -14)
@@ -492,7 +499,9 @@ local function addPreview(page, w)
     holder:SetWidth(1)
     holder:SetHeight(1)
 
-    local text = page:CreateFontString(nil, "OVERLAY")
+    -- through OB.NewText, which is where the reason lives: this row is the one
+    -- that got it wrong and took the whole panel down with it
+    local text = OB.NewText(page, "OVERLAY", "GameFontNormal")
     text:SetJustifyH("LEFT")
     text:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
     text:SetTextColor(1, 0.82, 0)
@@ -581,6 +590,9 @@ local function place(page, widget, w, column)
     widget.kind = w.kind
     widget.column = column or 1
 
+    -- a row that never reaches an update pass still shows, rather than vanishing
+    widget.visible = true
+
     local off = OFFSETS[w.kind] or { 0, 0 }
     widget.xoff, widget.yoff = off[1], off[2]
 
@@ -589,7 +601,101 @@ local function place(page, widget, w, column)
     return widget
 end
 
-local function buildRow(page, w, column)
+--[[ Show or hide a control together with the pieces of it that live on the page
+     rather than on the control: a slider's edit box, a dropdown's or swatch's
+     caption. Missing one leaves an orphaned label floating over the next row. ]]--
+local function setShown(widget, shown)
+    if shown then widget:Show() else widget:Hide() end
+    if widget.box then
+        if shown then widget.box:Show() else widget.box:Hide() end
+    end
+    if widget.label then
+        if shown then widget.label:Show() else widget.label:Hide() end
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- failing soft
+--
+-- A settings panel is built from a hundred small independent controls, so the
+-- blast radius of one bad control ought to be that control. It was not: a
+-- FontString created without a font object threw inside one row's constructor,
+-- which aborted the page loop, which aborted CreateSettingsPanel, which left the
+-- window with one sidebar entry, no rows and no Test button -- and cached that
+-- as the panel forever, because OB.settings had already been assigned.
+--
+-- Nothing here tries to make a broken control work. It contains the damage and
+-- says which control it was, which is the difference between a bug report that
+-- names a row and one that says "the settings do not open".
+-- ---------------------------------------------------------------------------
+
+OB.panelFaults = {}
+
+-- what to call the thing that broke, in the user's terms first and the
+-- developer's second
+local function faultLabel(w)
+    if not w then return "a control" end
+
+    local label = w.caption
+    if not label or label == "" then label = w.key or "?" end
+
+    if w.module then return label .. " (" .. w.module .. "." .. (w.key or "?") .. ")" end
+    return label .. " (" .. (w.scope or "?") .. "." .. (w.key or "?") .. ")"
+end
+
+-- neutral wording, because the same call reports a single control and a whole
+-- page and the label already says which
+local function fault(label, err)
+    table.insert(OB.panelFaults, { label = label, err = tostring(err) })
+
+    OB.Print("|cffff5511settings panel:|r " .. label .. " failed -- " .. tostring(err))
+    OB.Print("the rest of the panel still works. |cff69ccf0/eqob selftest|r lists this again.")
+end
+
+--[[ Everything about a row that can throw, in one place.
+
+     Visibility used to be decided inside OB.LayoutPage, which meant the reflow
+     reached through rowVisible into dependsOn predicates and a module's
+     VariantTable -- config and module concerns evaluated in the middle of pure
+     geometry, and a throw there took the whole page's layout with it. Deciding
+     it here leaves LayoutPage unable to fail at all, which is the same
+     separation that keeps layout.lua from knowing what a slot contains. ]]--
+local function updateRow(widget)
+    if widget.Update then widget:Update() end
+
+    local visible = true
+    if not widget.alwaysShow and widget.w and widget.w.key ~= "" then
+        visible = rowVisible(widget.w)
+    end
+
+    widget.visible = visible
+end
+
+--[[ The one protected call on the refresh path.
+
+     `broken` is the de-duplication as well as the flag. RefreshPanel runs from
+     ApplyOption, which runs from a slider's OnValueChanged -- every frame while
+     the mouse is down -- so a fault that merely printed would say the same
+     sentence four hundred times in five seconds. A row that has thrown once is
+     never called again, so it cannot.
+
+     A failed update hides the row rather than removing it. It is already placed
+     and already positioned, table.remove during iteration is index churn, and a
+     transient fault -- a variant scope momentarily nil mid-shapeshift -- would
+     otherwise permanently delete a control that works. ]]--
+local function refreshRow(widget)
+    if widget.broken then return end
+
+    local ok, err = pcall(updateRow, widget)
+    if ok then return end
+
+    widget.broken = true
+    widget.visible = false
+    setShown(widget, false)
+    fault(faultLabel(widget.w), err)
+end
+
+local function constructRow(page, w, column)
     local widget
 
     if w.kind == "boolean" then
@@ -606,11 +712,29 @@ local function buildRow(page, w, column)
         widget = addDropDown(page, w)
     end
 
-    place(page, widget, w, column)
+    return place(page, widget, w, column)
+end
 
-    -- seeded after placement and before any handler can fire, so building the
-    -- panel never writes to the config
-    if widget.Update then widget:Update() end
+--[[ Build one row, or none.
+
+     A construction fault drops the row outright, because `place` is the last
+     thing constructRow does: a throw means the widget was never inserted, and
+     what is left may be missing its edit box, its caption or the frame itself.
+     There is nothing there to keep.
+
+     Callers must cope with nil. The seeding update goes through refreshRow like
+     every later one, which keeps the ordering the old comment insisted on --
+     after placement, before any handler can fire, so building the panel never
+     writes to the config -- while making it guarded too. ]]--
+local function buildRow(page, w, column)
+    local ok, widget = pcall(constructRow, page, w, column)
+
+    if not ok then
+        fault(faultLabel(w), widget)
+        return nil
+    end
+
+    refreshRow(widget)
     return widget
 end
 
@@ -627,26 +751,21 @@ local function addButton(page, caption, width, column, onClick)
     return button
 end
 
---[[ Show or hide a control together with the pieces of it that live on the page
-     rather than on the control: a slider's edit box, a dropdown's or swatch's
-     caption. Missing one leaves an orphaned label floating over the next row. ]]--
-local function setShown(widget, shown)
-    if shown then widget:Show() else widget:Hide() end
-    if widget.box then
-        if shown then widget.box:Show() else widget.box:Hide() end
-    end
-    if widget.label then
-        if shown then widget.label:Show() else widget.label:Hide() end
-    end
-end
-
 --[[ Reflow a page from the top, one running offset per column.
 
      Equadis' Threat Meter can only hide rows that sit last on their page,
      because it assigns fixed coordinates once at build time and a hidden row in
      the middle leaves a hole. That will not do here: the module rows on the
      Slots page change completely with the selector, so every row is
-     repositioned on every layout. ]]--
+     repositioned on every layout.
+
+     Pure geometry, and deliberately so: it reads `visible`, it does not decide
+     it. Whether a row belongs on the page is a question about config, module
+     state and dependsOn predicates, all of which can throw, and none of which
+     should be able to leave a page unpositioned. updateRow answers it first.
+
+     The invariant that buys: **an update pass must run over a page before this
+     does.** There is exactly one caller and it does both in order. ]]--
 function OB.LayoutPage(page)
     local y = { 0, 0 }
 
@@ -654,12 +773,7 @@ function OB.LayoutPage(page)
         local widget = page.rows[i]
         local column = widget.column or 1
 
-        local visible = true
-        if not widget.alwaysShow and widget.w and widget.w.key ~= "" then
-            visible = rowVisible(widget.w)
-        end
-
-        if visible then
+        if widget.visible and not widget.broken then
             local x = 0
             if column == 2 then x = COLUMN_X end
 
@@ -880,7 +994,7 @@ local function addCategory(panel, name)
     button:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
 
     -- a bare Button has no font string of its own in 1.12, so build one
-    local label = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local label = OB.NewText(button, "OVERLAY", "GameFontNormalSmall")
     label:SetPoint("LEFT", button, 6, 0)
     label:SetJustifyH("LEFT")
     label:SetText(name)
@@ -1052,19 +1166,25 @@ local function buildModulesPage(page)
             rebind = true,
         }
 
+        -- buildRow returns nil for a row that failed to build; the loop carries
+        -- on so one module's toggle cannot cost the rest of the page
         local check = buildRow(page, w, 1)
-        check.alwaysShow = true
 
-        --[[ Absent means enabled, so a module shipped by a later version is on
-             until the user says otherwise -- the same principle as the defaults
-             merge. The checkbox has to read that, not plain truthiness. ]]--
-        check.Update = function(self)
-            local flag = OB.profile.modulesEnabled[id]
-            self:SetChecked(flag == nil or flag)
+        if check then
+            check.alwaysShow = true
+
+            --[[ Absent means enabled, so a module shipped by a later version is
+                 on until the user says otherwise -- the same principle as the
+                 defaults merge. The checkbox has to read that, not plain
+                 truthiness. ]]--
+            check.Update = function(self)
+                local flag = OB.profile.modulesEnabled[id]
+                self:SetChecked(flag == nil or flag)
+            end
+            check:Update()
+
+            if not OB.ClassAllows(m) then check:Disable() end
         end
-        check:Update()
-
-        if not OB.ClassAllows(m) then check:Disable() end
     end
 end
 
@@ -1135,11 +1255,33 @@ local function buildProfilesPage(page)
     end)
 end
 
+local function buildGeneralPage(page)
+    for i = 1, table.getn(generalLeft) do
+        buildRow(page, describeRow(generalLeft[i], "global", nil), 1)
+    end
+    for i = 1, table.getn(generalRight) do
+        buildRow(page, describeRow(generalRight[i], "global", nil), 2)
+    end
+end
+
+--[[ Build one page, or as much of it as survives.
+
+     Rows are already guarded individually, but a page builder does plenty that
+     is not a row -- the slot selector, the occupant dropdown, the profile edit
+     box, four buttons -- and a throw in any of that used to take every *later*
+     page down with it. That is the precise shape of the failure this is here to
+     prevent: a half-built Slots page is a far better outcome than no Modules and
+     no Profiles. ]]--
+local function buildPage(name, fn, page)
+    local ok, err = pcall(fn, page)
+    if not ok then fault(name .. " page", err) end
+    return page
+end
+
 function OB.CreateSettingsPanel()
     if OB.settings then return OB.settings end
 
     local panel = CreateFrame("Frame", "EquadisOmniBarsSettings", UIParent)
-    OB.settings = panel
     panel.categories = {}
 
     panel:Hide()
@@ -1182,7 +1324,7 @@ function OB.CreateSettingsPanel()
     panel.header:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header")
     panel.header:SetVertexColor(0.2, 0.2, 0.2)
 
-    panel.caption = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    panel.caption = OB.NewText(panel, "ARTWORK", "GameFontNormal")
     panel.caption:SetPoint("TOP", panel.header, 0, -14)
     panel.caption:SetText(OB.addonName)
 
@@ -1192,17 +1334,10 @@ function OB.CreateSettingsPanel()
     panel.divider:SetHeight(PANEL_H - 130)
     panel.divider:SetPoint("TOPLEFT", panel, CONTENT_X - 14, CONTENT_Y + 4)
 
-    local general = addCategory(panel, "General")
-    for i = 1, table.getn(generalLeft) do
-        buildRow(general, describeRow(generalLeft[i], "global", nil), 1)
-    end
-    for i = 1, table.getn(generalRight) do
-        buildRow(general, describeRow(generalRight[i], "global", nil), 2)
-    end
-
-    buildSlotsPage(addCategory(panel, "Slots"))
-    buildModulesPage(addCategory(panel, "Modules"))
-    buildProfilesPage(addCategory(panel, "Profiles"))
+    buildPage("General", buildGeneralPage, addCategory(panel, "General"))
+    buildPage("Slots", buildSlotsPage, addCategory(panel, "Slots"))
+    buildPage("Modules", buildModulesPage, addCategory(panel, "Modules"))
+    buildPage("Profiles", buildProfilesPage, addCategory(panel, "Profiles"))
 
     panel.btnTest = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.btnTest:SetWidth(120)
@@ -1210,8 +1345,17 @@ function OB.CreateSettingsPanel()
     panel.btnTest:SetPoint("BOTTOMLEFT", panel, 25, 22)
     panel.btnTest:SetScript("OnClick", function() OB.ToggleTestMode() end)
 
-    panel.status = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    panel.status = OB.NewText(panel, "OVERLAY", "GameFontDisableSmall")
     panel.status:SetPoint("BOTTOMRIGHT", panel, -25, 28)
+
+    --[[ Published only once there is something worth publishing.
+
+         This used to be the second statement in the function, which meant a
+         throw anywhere below left OB.settings pointing at a half-built window --
+         and since every entry point starts `if OB.settings then return it`, that
+         corpse *was* the settings panel for the rest of the session. Assigning
+         last costs nothing: nothing above reads it. ]]--
+    OB.settings = panel
 
     selectCategory("General")
     tinsert(UISpecialFrames, "EquadisOmniBarsSettings")
@@ -1219,20 +1363,50 @@ function OB.CreateSettingsPanel()
     return panel
 end
 
+--[[ The panel, built on first ask, or nil if it cannot be built.
+
+     Deliberately does not retry. 1.12 cannot destroy a frame, and every widget
+     in here takes a global name -- uniqueName's, EqOBOccupant, EqOBProfileDrop,
+     the dropdown children Blizzard's template derives from $parent. A second
+     attempt would rebind all of them to a fresh set and orphan the first,
+     leaking the whole panel on every /eqob. With rows and pages guarded
+     individually the only thing left that can throw is the deterministic chrome,
+     which would fail identically anyway, so the reason is cached instead. ]]--
+function OB.EnsurePanel()
+    if OB.settings then return OB.settings end
+    if OB.panelDead then return nil end
+
+    local ok, built = pcall(OB.CreateSettingsPanel)
+    if ok then return built end
+
+    OB.panelDead = tostring(built)
+    return nil
+end
+
 -- ---------------------------------------------------------------------------
 -- refresh
 -- ---------------------------------------------------------------------------
 
-function OB.RefreshPanel()
+--[[ Re-read every control from the config and reflow every page.
+
+     `force` refreshes a panel that is not on screen, which is otherwise skipped
+     because there would be nothing to see. The self-test uses it to build and
+     lay the panel out while it stays hidden -- so checking the panel neither
+     flashes a window open nor trips its OnHide, which would stop a preview the
+     user had running. hud.lua's placeholder takes no arguments and ignores this
+     one, which is fine: it only exists before options.lua has loaded. ]]--
+function OB.RefreshPanel(force)
     local panel = OB.settings
-    if not panel or not panel:IsVisible() or not OB.profile then return end
+    if not panel or not OB.profile then return end
+    if not force and not panel:IsVisible() then return end
 
     for i = 1, table.getn(panel.categories) do
         local page = panel.categories[i].page
 
+        -- update first, then lay out: LayoutPage reads `visible` rather than
+        -- deciding it, so the pass that decides has to have run
         for r = 1, table.getn(page.rows) do
-            local widget = page.rows[r]
-            if widget.Update then widget:Update() end
+            refreshRow(page.rows[r])
         end
 
         OB.LayoutPage(page)
@@ -1248,7 +1422,18 @@ function OB.RefreshPanel()
 end
 
 function OB.TogglePanel()
-    local panel = OB.settings or OB.CreateSettingsPanel()
+    local panel = OB.EnsurePanel()
+
+    --[[ A dead panel is an inconvenience, not a loss of function, and saying so
+         is the whole return on generating the panel and the prompt from one
+         table: every setting the window would have shown is still reachable by
+         typing. ]]--
+    if not panel then
+        OB.Print("the settings panel could not be built: " .. tostring(OB.panelDead))
+        OB.Print("every option is still available at the prompt -- type "
+                .. "|cff69ccf0/eqob help|r. A /reload will try again.")
+        return
+    end
 
     if panel:IsVisible() then
         panel:Hide()

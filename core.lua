@@ -380,6 +380,19 @@ function OB.RegisterModule(m)
     m.name = m.name or m.id
     m.events = m.events or {}
 
+    --[[ The client APIs this module cannot work without, by name.
+
+         Documentation the self-test reads, and never a load gate. Refusing to
+         register a module because one API is missing would silently drop it on a
+         client with a slightly different surface, which is strictly worse than a
+         module that draws nothing and can tell you exactly which call it wanted.
+
+         An API the module is *expected* to survive without does not belong here.
+         The range readout probes for UnitXP and has two fallbacks ready, so
+         listing it would make every plain install report a failure for working
+         as designed. ]]--
+    m.requires = m.requires or {}
+
     OB.modules[m.id] = m
     table.insert(OB.moduleOrder, m.id)
 

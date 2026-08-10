@@ -31,3 +31,7 @@ modules\druidmana.lua
 # interface
 options.lua
 slash.lua
+
+# verification -- depends on everything above, and nothing in it runs until
+# /eqob selftest asks it to
+selftest.lua

@@ -354,6 +354,7 @@ local function defineSwing(id, name, hand, slot, color)
         },
 
         options = swingOptions(),
+        requires = { "UnitAttackSpeed", "UnitRangedDamage" },
         events = { "PLAYER_ENTERING_WORLD", "UNIT_INVENTORY_CHANGED" },
     })
 

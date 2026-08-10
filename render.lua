@@ -37,6 +37,35 @@ function OB.FontPath()
             or STANDARD_TEXT_FONT
 end
 
+--[[ Every font string the addon has made, so the self-test can walk them.
+
+     Append-only, which is fine at the ~150 strings the HUD and the panel come to
+     and is the reason nothing here is ever destroyed anyway. Phase 4's meter
+     rows are the exception to watch: ShaguDPS recycles its rows, so those must
+     not each register or this becomes leak-shaped. ]]--
+OB.texts = {}
+
+--[[ Create a font string that is safe to touch.
+
+     A FontString created with no inherited template has no font object at all,
+     and in 1.12 colouring or measuring one that has no font object is an error
+     rather than a no-op. That is not hypothetical: one bare
+     CreateFontString(nil, "OVERLAY") followed by SetTextColor threw partway
+     through building the options panel's General page, which aborted the build
+     and shipped a settings window with one sidebar entry and no controls -- past
+     a green test suite, because the stub recorded the colour and said nothing.
+
+     Going through here means the rule cannot be broken by forgetting an
+     argument, and the registry means the self-test can prove it against the real
+     client instead of assuming it. ]]--
+function OB.NewText(parent, layer, template)
+    local text = parent:CreateFontString(nil, layer or "OVERLAY",
+            template or "GameFontNormal")
+
+    table.insert(OB.texts, text)
+    return text
+end
+
 --[[ Apply the configured family, size and outline. A missing or unreadable .ttf
      makes SetFont fail silently and leaves the string invisible, so fall back to
      the client font when that happens. ]]--
@@ -129,16 +158,27 @@ function OB.CreateBar(name, parent)
     bar.textLayer:SetAllPoints(bar)
     bar.textLayer:SetFrameLevel(bar.border:GetFrameLevel() + 1)
 
-    bar.left = bar.textLayer:CreateFontString(nil, "OVERLAY")
+    --[[ The colour is stated here rather than inherited. These three used to be
+         template-less and so drew in the default white; taking a template to get
+         a font object also brings that object's colour with it, and a bar's
+         numbers silently turning yellow is exactly the kind of drift that gets
+         noticed three sessions later. GameFontHighlight is already white, and
+         the explicit SetTextColor makes that a fact of this file rather than of
+         whatever Blizzard ships. ApplyFont replaces face, size and outline a
+         moment later, so colour is the only thing a template could leak. ]]--
+    bar.left = OB.NewText(bar.textLayer, "OVERLAY", "GameFontHighlight")
     bar.left:SetJustifyH("LEFT")
+    bar.left:SetTextColor(1, 1, 1)
     bar.left:SetPoint("LEFT", bar, "LEFT", 3, 0)
 
-    bar.right = bar.textLayer:CreateFontString(nil, "OVERLAY")
+    bar.right = OB.NewText(bar.textLayer, "OVERLAY", "GameFontHighlight")
     bar.right:SetJustifyH("RIGHT")
+    bar.right:SetTextColor(1, 1, 1)
     bar.right:SetPoint("RIGHT", bar, "RIGHT", -3, 0)
 
-    bar.center = bar.textLayer:CreateFontString(nil, "OVERLAY")
+    bar.center = OB.NewText(bar.textLayer, "OVERLAY", "GameFontHighlight")
     bar.center:SetJustifyH("CENTER")
+    bar.center:SetTextColor(1, 1, 1)
     bar.center:SetPoint("CENTER", bar, "CENTER", 0, 0)
 
     return bar

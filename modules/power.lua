@@ -178,6 +178,8 @@ local M = OB.RegisterModule({
         { "Decay Marker Colour", "rageDecayColor", "color", true, nil, nil, nil, "@power_rage" },
     },
 
+    requires = { "UnitMana", "UnitManaMax", "UnitPowerType" },
+
     events = {
         "UNIT_MANA", "UNIT_MAXMANA",
         "UNIT_RAGE", "UNIT_MAXRAGE",
