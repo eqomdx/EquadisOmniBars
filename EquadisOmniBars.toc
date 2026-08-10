@@ -1,0 +1,31 @@
+## Interface: 11200
+## Title: Equadis' OmniBars
+## Version: 0.1.0
+## Author: Equadis
+## Notes: All-in-one interface package. In development: the combat HUD is the first module set.
+## X-Website: https://github.com/eqomdx/EquadisOmniBars
+## SavedVariables: EquadisOmniBarsDB
+
+# The load order is the dependency graph. There is no loader: each file picks the
+# namespace up as a file local and may only use what came before it.
+
+# foundation
+core.lua
+config.lua
+
+# rendering and placement
+render.lua
+layout.lua
+
+# driver
+hud.lua
+
+# modules -- they register themselves, and this order is also the panel order
+modules\power.lua
+modules\combopoints.lua
+modules\swing.lua
+modules\health.lua
+
+# interface
+options.lua
+slash.lua
