@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.4.1 — in development.**
+> **Version 0.4.2 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -124,8 +124,10 @@ full**, and its color is the whole answer. All four colors are yours to set:
 
 The question is about **your equipped ranged weapon**, not some generic distance.
 It reads your ranged slot, works out whether that is a bow, a gun, a crossbow, a
-wand or a thrown weapon, and looks up the range of the auto-attack it fires — so
-a wand has no dead zone and a hunter's bow does.
+wand or a thrown weapon, and looks up the range of the auto-attack *you* fire with
+it — so a wand has no dead zone, and a hunter's gun reaches further than a
+warrior's, because Auto Shot and Shoot Gun are different spells with different
+ranges.
 
 How precisely it can answer depends on your client. With **Nampower** it uses the
 game's own range check, including the real minimum range. With **SuperWoW** it

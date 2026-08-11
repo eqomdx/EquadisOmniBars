@@ -90,6 +90,18 @@ local function boot(class, powerType, opts)
     Stub.player.targetDistance = opts.distance or 0
     Stub.player.stats = opts.stats or { 20, 20, 20, 100, 80 }
     Stub.player.spellbook = opts.spellbook or {}
+
+    --[[ Which auto-attack this character knows. Hunters get Auto Shot; everyone
+         else with a gun gets Shoot Gun, and the two do not reach the same
+         distance -- which is exactly what the distance readout has to tell
+         apart. Defaults by class so a test only names it when it cares. ]]--
+    if opts.spellNames then
+        Stub.player.spellNames = opts.spellNames
+    elseif class == "HUNTER" then
+        Stub.player.spellNames = { "Auto Shot" }
+    else
+        Stub.player.spellNames = { "Shoot Bow", "Shoot Gun", "Shoot Crossbow", "Shoot", "Throw" }
+    end
     Stub.player.spellCount = opts.spellCount or 0
     Stub.player.talents = opts.talents or {}
     Stub.tooltips = opts.tooltips or {}
@@ -496,6 +508,33 @@ local total = 0
 for i = 1, 5 do total = total + combo.frame.bars[i].width end
 check(total <= OB.profile.slots.extras.w and total >= OB.profile.slots.extras.w - 5,
         "segments fill the slot width", "total " .. total)
+
+--[[ Hiding at zero has to survive a refresh, and this is the worse half of that
+     bug: combo points are **not** `tickly`, so nothing redraws them on the next
+     frame. OB.Toggle re-showed the bar and there it stayed, five dim pips with no
+     combo points, until the count next changed.
+
+     The distance readout had the same fault and merely flickered, because it is
+     tickly and corrected itself a frame later. Whether a bug was visible or
+     permanent came down to a flag on the module, which is why the fix belongs in
+     Toggle rather than in either module. ]]--
+OB.profile.modules.combopoints.hideWhenZero = true
+Stub.player.combo = 0
+Stub.FireEvent("PLAYER_COMBO_POINTS")
+Stub.Tick(0.05, 2)
+check(not combo.frame:IsShown(), "combo points hide themselves at zero")
+
+OB.Refresh(true)
+check(not combo.frame:IsShown(), "and stay hidden through a refresh")
+Stub.Tick(0.05, 3)
+check(not combo.frame:IsShown(), "including three frames later, with nothing to redraw them")
+
+Stub.player.combo = 3
+Stub.FireEvent("PLAYER_COMBO_POINTS")
+Stub.Tick(0.05, 2)
+check(combo.frame:IsShown(), "and come back when there are points to show")
+
+OB.profile.modules.combopoints.hideWhenZero = false
 
 -- ---------------------------------------------------------------------------
 -- 9. movement: one code path, join, collision
@@ -1263,6 +1302,51 @@ eq(range.spell, "Auto Shot", "and mapped to the auto-attack it fires")
 eq(range.minRange, 9, "with that spell's real minimum, from the engine")
 eq(range.maxRange, 41, "and its real maximum")
 
+--[[ **Which** auto-attack depends on the class, not on the weapon.
+
+     A hunter with a gun fires Auto Shot; a warrior with the same gun fires Shoot
+     Gun, and they do not reach the same distance. Mapping every gun to Auto Shot
+     gave a warrior a hunter's range, and a target at forty yards read as in range
+     with a gun that stops at thirty.
+
+     The check has to be the *spellbook*. Nampower's GetSpellIdForName is a DBC
+     lookup -- it answers "does this spell exist", which is true of Auto Shot for
+     a warrior who will never cast it -- and asking it here is precisely what let
+     the bug through. ]]--
+OB = boot("WARRIOR", 1, { ranged = "Guns", nampower = true,
+                          spellNames = { "Shoot Gun" },
+                          spellRanges = { ["Auto Shot"] = { 9, 41 },
+                                          ["Shoot Gun"] = { 8, 30 } } })
+range = OB.modules.distance
+eq(range.spell, "Shoot Gun", "a warrior with a gun fires Shoot Gun, not Auto Shot")
+eq(range.maxRange, 30, "and gets its range, not the hunter's")
+
+OB = boot("HUNTER", 0, { ranged = "Guns", nampower = true,
+                         spellNames = { "Auto Shot" },
+                         spellRanges = { ["Auto Shot"] = { 9, 41 },
+                                         ["Shoot Gun"] = { 8, 30 } } })
+range = OB.modules.distance
+eq(range.spell, "Auto Shot", "a hunter with the same gun fires Auto Shot")
+eq(range.maxRange, 41, "and reaches further")
+
+-- and the reading follows: the warrior's forty-yard target is out of reach
+OB = boot("WARRIOR", 1, { ranged = "Guns", nampower = true, unitPosition = true,
+                          hasTarget = true, spellNames = { "Shoot Gun" },
+                          spellRanges = { ["Shoot Gun"] = { 8, 30 } } })
+range = OB.modules.distance
+Stub.player.targetDistance = 40
+range.nextPoll = 0
+Stub.Tick(0.05, 2)
+eq(range.state, "toofar", "forty yards is too far for a gun that stops at thirty")
+
+--[[ A client that can answer neither question falls back to the *last*
+     candidate -- the non-hunter one, which is both commoner and shorter, so a
+     wrong guess errs towards refusing a shot rather than promising one. ]]--
+OB = boot("WARRIOR", 1, { ranged = "Guns", spellNames = {} })
+range = OB.modules.distance
+eq(range.spell, "Shoot Gun", "with no spellbook to read, the shorter guess wins")
+eq(range.maxRange, 30, "and its range with it")
+
 --[[ Without Nampower there is nothing to ask, so the weapon *type* supplies the
      range instead. A guess, but an informed one -- and the alternative is no
      minimum at all, which would mean a hunter standing on top of a mob reading
@@ -1477,6 +1561,21 @@ Stub.player.hasTarget = false
 range.nextPoll = 0
 Stub.Tick(0.05, 2)
 check(not rangeBar:IsShown(), "so no target hides the bar outright")
+
+--[[ And it stays hidden through a refresh.
+
+     OB.Toggle re-asserts every bar's visibility from its Show Bar setting, and
+     it used to overrule a module that had decided it had nothing to draw. The
+     bar came back with whatever colour it last held, which is what "the bar does
+     not change colour from no target" looked like from the outside: a stale
+     green with nothing targeted.
+
+     OB.Refresh runs on combat, on every setting change and on every profile
+     switch, so this was not a rare path. ]]--
+OB.Refresh(true)
+check(not rangeBar:IsShown(), "and stays hidden through a refresh")
+Stub.Tick(0.05, 2)
+check(not rangeBar:IsShown(), "and a frame later")
 
 --[[ Give it any visible opacity and it becomes a drawn placeholder instead,
      which is what makes the colour a setting worth having rather than an

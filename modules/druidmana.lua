@@ -402,17 +402,17 @@ function M:OnDraw()
          slot, because it looks authoritative. The source library shipped a
          maximum of 10 for this case and drew a full bar on it. ]]--
     if not OB.testMode and not self.seeded then
-        self.frame:Hide()
+        OB.SetBarShown(self, false)
         return
     end
 
     --[[ In caster form the resource bar already shows real mana, so this one is
          a duplicate of it and hides by default. ]]--
     if cfg.hideInCaster and not OB.testMode and not self:Shifted() then
-        self.frame:Hide()
+        OB.SetBarShown(self, false)
         return
     end
-    if slot.show then self.frame:Show() end
+    OB.SetBarShown(self, true)
 
     local value, max = self:GetValue()
 

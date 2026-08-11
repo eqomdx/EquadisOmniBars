@@ -77,10 +77,10 @@ function M:OnDraw()
     local count = self:GetValue()
 
     if cfg.hideWhenZero and count == 0 then
-        self.frame:Hide()
+        OB.SetBarShown(self, false)
         return
     end
-    if slot.show then self.frame:Show() end
+    OB.SetBarShown(self, true)
 
     for i = 1, self.frame.count do
         -- flipping reverses which end lights up first, not the fill direction:

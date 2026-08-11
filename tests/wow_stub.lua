@@ -481,6 +481,9 @@ Stub.player = {
 
     -- GetSpellTexture by book index
     spellbook = {},
+
+    -- spell names by book index, for the distance readout's auto-attack lookup
+    spellNames = {},
     spellCount = 0,
 
     -- GetTalentInfo rank, keyed "tab:index"
@@ -529,6 +532,20 @@ end
 
 function GetSpellTexture(index, bookType)
     return Stub.player.spellbook[index]
+end
+
+--[[ Spell names by book index. Separate from `spellbook`, which holds textures:
+     the druid mana scrape finds Bear Form by icon because the name is localised,
+     while the distance readout has to match a name because Auto Shot and Shoot
+     Gun share no icon distinction it can use.
+
+     This is how a plain client tells a hunter's Auto Shot from a warrior's Shoot
+     Gun -- the two fire the same gun to different distances, and getting it wrong
+     told a warrior a forty-yard target was in range. ]]--
+function GetSpellName(index, bookType)
+    local name = Stub.player.spellNames and Stub.player.spellNames[index]
+    if not name then return nil end
+    return name, ""
 end
 
 function GetLocale() return Stub.locale or "enUS" end

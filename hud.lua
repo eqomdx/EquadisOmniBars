@@ -45,6 +45,29 @@ end
 -- binding
 -- ---------------------------------------------------------------------------
 
+--[[ A module saying whether it has anything to draw right now.
+
+     Separate from the bar's own Show Bar setting, and from the HUD-wide
+     visibility rules, because they answer different questions: the user has
+     switched this bar off, the HUD is hidden out of combat, and *there is no off
+     hand equipped* are three different reasons for an empty rectangle, and only
+     the module knows the third.
+
+     Recorded on the descriptor rather than left implicit in the frame's state,
+     so OB.Toggle can honour it. A frame that is merely hidden looks identical to
+     one that has never been shown, and Toggle cannot tell them apart. ]]--
+function OB.SetBarShown(m, visible)
+    m.selfHidden = not visible
+
+    if not visible then
+        m.frame:Hide()
+        return
+    end
+
+    local slot = OB.profile.slots[m.slotId]
+    if slot and slot.show then m.frame:Show() end
+end
+
 function OB.SetDirty(m)
     if m then m.needsDraw = true end
     OB.hud.needsDraw = true
@@ -192,9 +215,17 @@ function OB.Toggle()
         OB.container:Hide()
     end
 
-    -- per-bar visibility: a bar can be switched off without unbinding its module
+    --[[ Per-bar visibility: a bar can be switched off without unbinding its
+         module.
+
+         `selfHidden` is checked as well, because a module that has decided it
+         has nothing to draw must not be overruled here. It used to be: this loop
+         re-showed a bar the module had hidden, and whether that was ever undone
+         came down to whether the module happened to be `tickly`. The distance
+         readout redrew a frame later and flickered; combo points, which are not
+         tickly, stayed wrongly visible until the count next changed. ]]--
     for slotId, m in pairs(OB.bound) do
-        if OB.profile.slots[slotId].show then
+        if OB.profile.slots[slotId].show and not m.selfHidden then
             m.frame:Show()
         else
             m.frame:Hide()

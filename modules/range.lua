@@ -55,33 +55,66 @@ local RANGED_SLOT = 18
      weapon, so they match nothing here and have no ranged attack at all. That is
      not an error: the bar falls back to a plain distance readout for them, which
      is still worth having. ]]--
+--[[ Candidates, in the order they are tried. The player has exactly one of each
+     row and which one depends on the class, not on the weapon.
+
+     This is the correction that mattered most: a hunter with a gun fires **Auto
+     Shot**; a warrior with the same gun fires **Shoot Gun**, which is a different
+     spell with a different range -- 8-30 against Auto Shot's 8-35. Mapping every
+     bow, gun and crossbow to Auto Shot gave every non-hunter a range five yards
+     too long and, on a client that could answer, a hunter's numbers outright. It
+     read as in range at forty yards with a gun that stops at thirty. ]]--
 local weaponSpell = {
-    ["Bows"] = "Auto Shot",
-    ["Guns"] = "Auto Shot",
-    ["Crossbows"] = "Auto Shot",
-    ["Thrown"] = "Throw",
-    ["Wands"] = "Shoot",
+    ["Bows"] = { "Auto Shot", "Shoot Bow" },
+    ["Guns"] = { "Auto Shot", "Shoot Gun" },
+    ["Crossbows"] = { "Auto Shot", "Shoot Crossbow" },
+    ["Thrown"] = { "Throw" },
+    ["Wands"] = { "Shoot" },
 }
 
---[[ Ranges to assume per weapon type when nothing can be asked for the real
-     ones: { minimum, maximum }.
+--[[ Ranges to assume when nothing can be asked for the real ones:
+     { minimum, maximum }.
+
+     Keyed by **spell**, not by weapon, because that is the thing the range
+     belongs to. Auto Shot and Shoot Gun fire out of the same gun and do not
+     reach the same distance, and keying this by "Guns" made that impossible to
+     express.
 
      These are the classic vanilla numbers and they are **assumptions**. Nampower
-     supersedes every one of them with the client's own DBC values, so they only
-     matter on an install without it -- but they matter a lot there, because
-     without a minimum the dead zone cannot exist and a hunter standing on top of
-     a mob would read as in range while being unable to shoot.
+     supersedes every one with the client's own DBC values, so they only matter on
+     an install without it -- but they matter a lot there, because without a
+     minimum the dead zone cannot exist and a hunter standing on top of a mob
+     would read as in range while unable to shoot.
 
-     Knowing the *type* is what makes even a guess worth having: a bow has a dead
-     zone and a wand does not, and that much is certain from the slot alone. If
-     Turtle has retuned any of this, here is the one place to correct it. ]]--
-local weaponRange = {
-    ["Bows"] = { 8, 35 },
-    ["Guns"] = { 8, 35 },
-    ["Crossbows"] = { 8, 35 },
-    ["Thrown"] = { 0, 30 },
-    ["Wands"] = { 0, 30 },
+     If Turtle has retuned any of this, here is the one place to correct it. ]]--
+local spellRange = {
+    ["Auto Shot"] = { 8, 35 },
+    ["Shoot Bow"] = { 8, 30 },
+    ["Shoot Gun"] = { 8, 30 },
+    ["Shoot Crossbow"] = { 8, 30 },
+    ["Throw"] = { 0, 30 },
+    ["Shoot"] = { 0, 30 },
 }
+
+--[[ Does the player actually have this spell?
+
+     The **spellbook**, and deliberately not Nampower. `GetSpellIdForName` is a
+     DBC lookup: it answers "does this spell exist in the game", which is true of
+     Auto Shot for a warrior who will never cast it. Asking it here is what let a
+     warrior with a gun keep a hunter's range.
+
+     The walk runs on a probe -- login and inventory changes -- never on a draw. ]]--
+local function playerKnows(name)
+    if type(GetSpellName) ~= "function" then return false end
+
+    local i = 1
+    while true do
+        local spell = GetSpellName(i, BOOKTYPE_SPELL)
+        if not spell then return false end
+        if spell == name then return true end
+        i = i + 1
+    end
+end
 
 -- ---------------------------------------------------------------------------
 -- optional client mods
@@ -355,17 +388,37 @@ function M:ScanWeapon()
     if not ok or not subtype then return end
 
     self.weapon = subtype
-    self.spell = weaponSpell[subtype]
 
-    -- a relic, an idol, a totem: no ranged attack, so the configured fallback
-    -- stands and the bar becomes a plain distance readout
-    if not self.spell then return end
+    --[[ Which auto-attack this weapon fires *for this player*. A hunter with a
+         gun fires Auto Shot; a warrior with the same gun fires Shoot Gun, and
+         they do not reach the same distance. The candidates are tried in order
+         and the first the player actually has wins.
+
+         A relic, an idol or a totem matches no row at all: no ranged attack, so
+         the configured fallback stands and the bar becomes a plain distance
+         readout. ]]--
+    local candidates = weaponSpell[subtype]
+    if not candidates then return end
+
+    for i = 1, table.getn(candidates) do
+        if playerKnows(candidates[i]) then
+            self.spell = candidates[i]
+            break
+        end
+    end
+
+    --[[ Nothing matched, which means a client that can answer neither question:
+         no Nampower and no readable spellbook. Assume the last candidate -- the
+         non-hunter one, which is both the commoner case and the shorter range,
+         so a wrong guess errs towards saying "too far" rather than promising a
+         shot that will not fire. ]]--
+    if not self.spell then self.spell = candidates[table.getn(candidates)] end
 
     --[[ Three sources, weakest first, each overwriting the last. The assumed
-         range beats the configured one because knowing the weapon type is real
+         range beats the configured one because knowing which spell is real
          information; the engine's own numbers beat both because they are not a
          guess at all. ]]--
-    local assumed = weaponRange[subtype]
+    local assumed = spellRange[self.spell]
     if assumed then self.minRange, self.maxRange = assumed[1], assumed[2] end
 
     local minRange, maxRange, spellId = OB.SpellRange(self.spell)
@@ -505,11 +558,11 @@ function M:OnDraw()
          what makes the No Target colour a setting worth having rather than an
          elaborate way of spelling "hidden". ]]--
     if not self.state and (color[4] or 1) <= 0 then
-        bar:Hide()
+        OB.SetBarShown(self, false)
         return
     end
 
-    if slot.show then bar:Show() end
+    OB.SetBarShown(self, true)
 
     --[[ **Always full.** The colour is the entire reading, and a bar that is
          sometimes a block of colour and sometimes a partial fill is two readouts

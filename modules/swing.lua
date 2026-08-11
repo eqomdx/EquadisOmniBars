@@ -263,11 +263,11 @@ function impl:OnUpdate(now)
          absent one, and the first thing anyone asks about it is why their off
          hand timer is stuck at zero. ]]--
     if not speed or speed <= 0 then
-        self.frame:Hide()
+        OB.SetBarShown(self, false)
         return
     end
 
-    if slot.show then self.frame:Show() end
+    OB.SetBarShown(self, true)
 
     --[[ The bar shows how charged the swing is, so idle -- not auto attacking --
          reads as ready rather than empty. The swing really is available. ]]--
