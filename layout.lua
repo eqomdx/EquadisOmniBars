@@ -57,8 +57,8 @@ function OB.ApplyPositions()
     OB.container:SetWidth(1)
     OB.container:SetHeight(1)
 
-    for i = 1, table.getn(OB.slotOrder) do
-        local slotId = OB.slotOrder[i]
+    for i = 1, table.getn(OB.barOrder) do
+        local slotId = OB.barOrder[i]
         local m = OB.bound[slotId]
 
         if m and m.frame then
@@ -103,8 +103,8 @@ function OB.SlotCollides(slotId, x, y)
     local aL, aR = x - pad, x + el.w + pad
     local aT, aB = y + pad, y - el.h - pad
 
-    for i = 1, table.getn(OB.slotOrder) do
-        local otherId = OB.slotOrder[i]
+    for i = 1, table.getn(OB.barOrder) do
+        local otherId = OB.barOrder[i]
         if otherId ~= slotId and slotActive(otherId) then
             local other = slots[otherId]
             local bL, bR = other.x - pad, other.x + other.w + pad
@@ -132,8 +132,8 @@ function OB.ResolveBorderOverlap()
     local slots = OB.profile.slots
 
     local order = {}
-    for i = 1, table.getn(OB.slotOrder) do
-        local id = OB.slotOrder[i]
+    for i = 1, table.getn(OB.barOrder) do
+        local id = OB.barOrder[i]
         if slotActive(id) then table.insert(order, id) end
     end
     table.sort(order, function(a, b) return slots[a].y > slots[b].y end)
@@ -160,13 +160,13 @@ end
      bug class the fixed anchor exists to prevent, and it would break the promise
      that two characters on one profile line up: the moment their occupancy
      differs, an automatic stack would put their bars in different places. ]]--
-function OB.RestackSlots()
+function OB.RestackBars()
     local slots = OB.profile.slots
     local pad = OB.BorderPad()
 
     local order = {}
-    for i = 1, table.getn(OB.slotOrder) do
-        local id = OB.slotOrder[i]
+    for i = 1, table.getn(OB.barOrder) do
+        local id = OB.barOrder[i]
         if slotActive(id) then table.insert(order, id) end
     end
     table.sort(order, function(a, b) return slots[a].y > slots[b].y end)
@@ -256,7 +256,7 @@ end
 function OB.NudgeTarget(dx, dy)
     local target = OB.moveTarget
     if not target then return end
-    if target == "ALL" then target = OB.slotOrder[1] end
+    if target == "ALL" then target = OB.barOrder[1] end
     OB.NudgeSlot(target, dx, dy)
 end
 
@@ -417,8 +417,8 @@ function OB.PositionMover()
         local el = slots[target]
         left, right, top, bottom = el.x, el.x + el.w, el.y, el.y - el.h
     else
-        for i = 1, table.getn(OB.slotOrder) do
-            local id = OB.slotOrder[i]
+        for i = 1, table.getn(OB.barOrder) do
+            local id = OB.barOrder[i]
             if slotActive(id) then
                 local el = slots[id]
                 if not left or el.x < left then left = el.x end

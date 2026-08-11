@@ -18,7 +18,8 @@
 
   Three rules:
 
-  It writes nothing. No ApplyOption, no AssignSlot, no SetTestMode. Running it
+  It writes nothing. No ApplyOption, no SetTestMode, no touching the profile.
+  Running it
   must never be the reason something changed. The one exception is building the
   settings panel, which is idempotent and is done hidden.
 
@@ -193,8 +194,8 @@ section("bound modules", function(t)
     local seen = {}
     local count = 0
 
-    for i = 1, table.getn(OB.slotOrder) do
-        local slotId = OB.slotOrder[i]
+    for i = 1, table.getn(OB.barOrder) do
+        local slotId = OB.barOrder[i]
         local m = OB.bound[slotId]
 
         if m then
@@ -318,7 +319,7 @@ end)
 -- ---------------------------------------------------------------------------
 
 section("range backend", function(t)
-    local m = OB.modules.range
+    local m = OB.modules.distance
     if not m then
         t:note("the range module is not registered")
         return
@@ -345,7 +346,7 @@ section("range backend", function(t)
     else
         note = note .. " (no UnitXP -- bands is the best available)"
     end
-    if not OB.SlotOf("range") then note = note .. ", not bound to a slot" end
+    if not OB.bound.distance then note = note .. ", bar not drawn" end
 
     t:note(note)
 end)

@@ -24,6 +24,9 @@ local OB = EquadisOmniBars
 OB.POS_MIN, OB.POS_MAX = -2000, 2000
 OB.HEIGHT_MAX = 40
 
+-- likewise one scale range, shared by the slider and the load-time clamp
+OB.SCALE_MIN, OB.SCALE_MAX = 0.5, 1.5
+
 function OB.ClampCoord(v)
     if not v then return 0 end
     if v < OB.POS_MIN then return OB.POS_MIN end
@@ -35,15 +38,22 @@ end
 -- defaults
 -- ---------------------------------------------------------------------------
 
---[[ Slot geometry continues RogueBars' stack: offsets from the container's
-     TOPLEFT with positive Y upward, at the sizes it shipped with. An imported
-     RogueBars layout therefore lands exactly where it was, and the two new slots
-     sit in free space below it.
+--[[ Bar geometry: offsets from the container's TOPLEFT with positive Y upward,
+     stacked in OB.barOrder with a 1px gap, health at the top.
 
-       points 115..107   swingB 106..94   swingA 93..81
-       resource 80..56   health 55..39    aux 38..26 ]]--
+       health 115..99     resource 98..74    mainhand 73..61
+       offhand 60..48     ranged 47..35      distance 34..22
+       secondary 21..9    extras 8..0
+
+     The panel lists them in this same order, so the list and the screen agree
+     and there is nothing to reconcile.
+
+     Most classes cannot fill all eight, which leaves a gap where their unusable
+     bars sit. That is deliberate: geometry is account-wide, so closing the gap
+     automatically for a rogue would move a hunter's bars. Restack Occupied Bars
+     does it on demand -- see constraint 15. ]]--
 OB.defaults = {
-    schema = 2,
+    schema = 3,
 
     -- visibility
     show = true,
@@ -74,38 +84,22 @@ OB.defaults = {
     modulesEnabled = {},
 
     slots = {
-        points   = { x = 0, y = 115, w = 200, h = 8,  hide = false, flip = false,
-                     bg = { 0, 0, 0, 0.5 }, textSize = 12 },
-        swingB   = { x = 0, y = 106, w = 200, h = 12, hide = false, flip = false,
-                     bg = { 0, 0, 0, 0.8 }, textSize = 10 },
-        swingA   = { x = 0, y = 93,  w = 200, h = 12, hide = false, flip = false,
-                     bg = { 0, 0, 0, 0.8 }, textSize = 10 },
-        resource = { x = 0, y = 80,  w = 200, h = 24, hide = false, flip = false,
-                     bg = { 0, 0, 0, 0.5 }, textSize = 12 },
-        health   = { x = 0, y = 55,  w = 200, h = 16, hide = false, flip = false,
-                     bg = { 0, 0, 0, 0.5 }, textSize = 11 },
-        aux      = { x = 0, y = 38,  w = 200, h = 12, hide = true,  flip = false,
-                     bg = { 0, 0, 0, 0.5 }, textSize = 10 },
-    },
-
-    --[[ "*" is every class; a class key overrides it slot by slot.
-
-         The hunter rows are seeded data, not a branch in the code: a hunter has
-         no off hand, shoots rather than swings, and wants the range readout
-         where a rogue keeps combo points. Changing the dropdown writes exactly
-         this shape, so the shipped default and a user edit are
-         indistinguishable.
-
-         aux is "auto" rather than "none" so it takes whichever module names it
-         as a default -- the range readout, or a druid's secondary mana, which
-         outranks it. The slot still ships hidden, so nothing appears until the
-         user asks for it. ]]--
-    assign = {
-        ["*"] = {
-            points = "auto", swingB = "auto", swingA = "auto",
-            resource = "auto", health = "auto", aux = "auto",
-        },
-        ["HUNTER"] = { points = "range", swingB = "none", swingA = "swing_ranged" },
+        health    = { x = 0, y = 115, w = 200, h = 16, hide = false, flip = false,
+                      bg = { 0, 0, 0, 0.5 }, textSize = 11 },
+        resource  = { x = 0, y = 98,  w = 200, h = 24, hide = false, flip = false,
+                      bg = { 0, 0, 0, 0.5 }, textSize = 12 },
+        mainhand  = { x = 0, y = 73,  w = 200, h = 12, hide = false, flip = false,
+                      bg = { 0, 0, 0, 0.8 }, textSize = 10 },
+        offhand   = { x = 0, y = 60,  w = 200, h = 12, hide = false, flip = false,
+                      bg = { 0, 0, 0, 0.8 }, textSize = 10 },
+        ranged    = { x = 0, y = 47,  w = 200, h = 12, hide = false, flip = false,
+                      bg = { 0, 0, 0, 0.8 }, textSize = 10 },
+        distance  = { x = 0, y = 34,  w = 200, h = 12, hide = true,  flip = false,
+                      bg = { 0, 0, 0, 0.5 }, textSize = 10 },
+        secondary = { x = 0, y = 21,  w = 200, h = 12, hide = true,  flip = false,
+                      bg = { 0, 0, 0, 0.5 }, textSize = 10 },
+        extras    = { x = 0, y = 8,   w = 200, h = 8,  hide = false, flip = false,
+                      bg = { 0, 0, 0, 0.5 }, textSize = 12 },
     },
 
     -- filled in by OB.RegisterModule as each module loads
@@ -139,6 +133,101 @@ OB.profileMigrations = {
         if p.assign and p.assign["*"] and p.assign["*"].aux == "none" then
             p.assign["*"].aux = "auto"
         end
+    end },
+
+    --[[ Slots became Bars.
+
+         Six abstract slots you assigned modules to became eight named bars, each
+         permanently paired with one module. The rename carries each bar's tuned
+         width, height, X, text size, background and flip across; only Y is
+         rewritten, by the restack below, because the order changed and the two
+         new bars have to go somewhere.
+
+         What is lost, and it is worth being straight about: a deliberate
+         *assignment*. Someone who had put health where combo points went gets
+         health back in the Health bar. There is no way to preserve that, because
+         the thing that expressed it no longer exists -- and it is the feature the
+         restructure was asked for in order to remove.
+
+         Module settings move with their ids. `range` reads better as `distance`
+         next to a `ranged` swing timer, and `swing_main` reads worse than
+         `mainhand` beside a bar called Main Hand. ]]--
+    { 3, function(p)
+        local bars = {
+            points = "extras", swingB = "offhand", swingA = "mainhand",
+            aux = "distance",
+            -- health and resource keep their names
+        }
+
+        local modules = {
+            range = "distance", swing_main = "mainhand",
+            swing_off = "offhand", swing_ranged = "ranged",
+        }
+
+        --[[ Merged over the new key, never assigned to it.
+
+             By the time a migration runs, `p` already holds a full set of
+             defaults with the saved values merged on top -- so p.slots.mainhand
+             exists and is complete, while p.slots.swingA holds only whatever the
+             save happened to carry. Assigning one to the other replaces a
+             complete table with a partial one and quietly drops every key the
+             old save never mentioned. Merging keeps the defaults underneath,
+             which is the same rule that makes a new setting appear for existing
+             users. ]]--
+        local function rename(t, from, to)
+            if not t or not t[from] then return end
+
+            if type(t[to]) == "table" then
+                OB.DeepMerge(t[to], t[from])
+            else
+                t[to] = t[from]
+            end
+
+            t[from] = nil
+        end
+
+        for from, to in pairs(bars) do rename(p.slots, from, to) end
+        for from, to in pairs(modules) do rename(p.modules, from, to) end
+
+        if p.modulesEnabled then
+            for from, to in pairs(modules) do
+                if p.modulesEnabled[from] ~= nil then
+                    p.modulesEnabled[to] = p.modulesEnabled[from]
+                    p.modulesEnabled[from] = nil
+                end
+            end
+        end
+
+        p.assign = nil
+
+        --[[ Restack in the new order, keeping the cluster where it was.
+
+             Done here rather than by calling OB.RestackBars because that lives in
+             layout.lua, loads after this file, and works off which bars are
+             *bound* -- which needs a profile that has finished loading. A
+             migration cannot wait for any of that, and the job is a dozen lines
+             of arithmetic anyway.
+
+             The top of the existing stack is reused as the top of the new one, so
+             the whole cluster stays where the user put it on screen rather than
+             jumping to the shipped default. ]]--
+        local top
+        for id, bar in pairs(p.slots) do
+            if not top or bar.y > top then top = bar.y end
+        end
+        if not top then top = 115 end
+
+        local y = top
+        for i = 1, table.getn(OB.barOrder) do
+            local bar = p.slots[OB.barOrder[i]]
+            if bar then
+                bar.y = OB.ClampCoord(y)
+                y = y - bar.h - 1
+            end
+        end
+
+        OB.Print("slots are now bars, and yours have been re-stacked in the new "
+                .. "order. Drag them, or use Restack on the Bars page, to change it.")
     end },
 }
 
@@ -237,9 +326,13 @@ function OB.ImportRogueBars(p)
 
     local e = rb.Elements
 
-    importGeometry(p.slots.points, e.Combo)
-    importGeometry(p.slots.swingB, e.OffHand)
-    importGeometry(p.slots.swingA, e.MainHand)
+    --[[ RogueBars' four elements onto the bars that succeeded them. Its Y values
+         come across untouched, so an imported layout lands exactly where it was
+         -- the other four bars are new and sit wherever the defaults put them,
+         which is what Restack is for. ]]--
+    importGeometry(p.slots.extras, e.Combo)
+    importGeometry(p.slots.offhand, e.OffHand)
+    importGeometry(p.slots.mainhand, e.MainHand)
     importGeometry(p.slots.resource, e.Energy)
 
     if p.modules.combopoints and type(e.Combo) == "table"
@@ -252,8 +345,8 @@ function OB.ImportRogueBars(p)
         end
     end
 
-    if p.modules.swing_off then importSwing(p.modules.swing_off, e.OffHand) end
-    if p.modules.swing_main then importSwing(p.modules.swing_main, e.MainHand) end
+    if p.modules.offhand then importSwing(p.modules.offhand, e.OffHand) end
+    if p.modules.mainhand then importSwing(p.modules.mainhand, e.MainHand) end
 
     --[[ RogueBars only ever drew energy, so its bar colour and ticker mode are
          the energy variant's. The other power types keep their own defaults. ]]--
@@ -357,8 +450,11 @@ function OB.LoadConfig()
         if slot.h < 1 then slot.h = 1 end
     end
 
-    if p.scale < 0.5 then p.scale = 0.5 end
-    if p.scale > 2.0 then p.scale = 2.0 end
+    --[[ The slider's range and this clamp are one setting in two places and must
+         not disagree, or a profile can hold a scale its own slider cannot reach.
+         A saved value above the ceiling is brought down rather than refused. ]]--
+    if p.scale < OB.SCALE_MIN then p.scale = OB.SCALE_MIN end
+    if p.scale > OB.SCALE_MAX then p.scale = OB.SCALE_MAX end
 
     db.profiles[name] = p
     OB.profile = p
@@ -367,56 +463,16 @@ function OB.LoadConfig()
     return p
 end
 
---[[ Resolve a slot's occupant: an explicit assignment for this class, else the
-     "*" row, else "auto", which asks the registry. "none" is an explicit empty
-     that overrides auto. ]]--
-function OB.ResolveOccupant(slotId)
-    local p = OB.profile
-    if not p then return nil end
+--[[ There was an assignment layer here -- ResolveOccupant, SlotOf, AssignSlot --
+     letting any module be put in any slot, per class, with "auto" and "none"
+     sentinels. It is gone. A module names its bar and that is the end of it, so
+     "which module draws here" is a registry lookup (OB.Occupant) rather than a
+     stored, migratable, user-editable answer.
 
-    local want
-    if p.assign[OB.class] then want = p.assign[OB.class][slotId] end
-    if want == nil and p.assign["*"] then want = p.assign["*"][slotId] end
-    if want == nil then want = "auto" end
-
-    if want == "none" then return nil end
-    if want == "auto" then return OB.AutoOccupant(slotId) end
-
-    if not OB.ModuleEnabled(want) then return nil end
-    return want
-end
-
--- which slot a module currently sits in, or nil
-function OB.SlotOf(moduleId)
-    for i = 1, table.getn(OB.slotOrder) do
-        local slotId = OB.slotOrder[i]
-        if OB.ResolveOccupant(slotId) == moduleId then return slotId end
-    end
-    return nil
-end
-
---[[ Point a slot at a module.
-
-     A module occupies at most one slot, so assigning one that already sits
-     elsewhere vacates its old home. Without that the binder would need to
-     resolve the conflict itself on every rebind. ]]--
-function OB.AssignSlot(slotId, moduleId)
-    local p = OB.profile
-    if not p or not p.slots[slotId] then return end
-
-    if moduleId ~= "auto" and moduleId ~= "none" then
-        local previous = OB.SlotOf(moduleId)
-        if previous and previous ~= slotId then
-            p.assign[OB.class] = p.assign[OB.class] or {}
-            p.assign[OB.class][previous] = "none"
-            OB.Print(OB.slotLabels[previous] .. " emptied: "
-                    .. moduleId .. " moved to " .. OB.slotLabels[slotId] .. ".")
-        end
-    end
-
-    p.assign[OB.class] = p.assign[OB.class] or {}
-    p.assign[OB.class][slotId] = moduleId
-end
+     It went because it was not earning its complexity: every bar can be dragged
+     anywhere, so the ordering it existed to express was already the user's, and
+     the dropdown that exposed it was the single most confusing control in the
+     panel. ]]--
 
 -- ---------------------------------------------------------------------------
 -- profiles

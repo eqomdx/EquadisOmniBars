@@ -257,12 +257,17 @@ function impl:OnUpdate(now)
 
     local speed, start = self:GetSpeed()
 
+    --[[ Nothing in that hand: hide the bar outright rather than draw an empty
+         one. SetBarFill(0) only hides the *fill*, which leaves the background
+         painted -- an empty trough that reads as a broken bar rather than an
+         absent one, and the first thing anyone asks about it is why their off
+         hand timer is stuck at zero. ]]--
     if not speed or speed <= 0 then
-        OB.SetBarFill(bar, 0, slot.flip)
-        bar.left:SetText("")
-        bar.right:SetText("")
+        self.frame:Hide()
         return
     end
+
+    if not slot.hide then self.frame:Show() end
 
     --[[ The bar shows how charged the swing is, so idle -- not auto attacking --
          reads as ready rather than empty. The swing really is available. ]]--
@@ -335,11 +340,11 @@ end
 -- the module ids
 -- ---------------------------------------------------------------------------
 
-local function defineSwing(id, name, hand, slot, color)
+local function defineSwing(id, name, hand, bar, color)
     local m = OB.RegisterModule({
         id = id,
         name = name,
-        slot = slot,
+        bar = bar,
         priority = 10,
         renders = "bar",
         tickly = true,
@@ -367,11 +372,10 @@ local function defineSwing(id, name, hand, slot, color)
     return m
 end
 
-defineSwing("swing_main", "Main Hand", "main", "swingA", { 1.0, 0.635, 0.0, 1 })
-defineSwing("swing_off", "Off Hand", "off", "swingB", { 1.0, 0.745, 0.31, 1 })
+defineSwing("mainhand", "Main Hand", "main", "mainhand", { 1.0, 0.635, 0.0, 1 })
+defineSwing("offhand", "Off Hand", "off", "offhand", { 1.0, 0.745, 0.31, 1 })
 
---[[ The ranged timer names no default slot, so it is never an automatic
-     occupant anywhere. It is seeded into a hunter's swingA as an assignment
-     instead, which leaves it available to a warrior with a gun without putting
-     it in front of anyone who never uses one. ]]--
-defineSwing("swing_ranged", "Ranged", "ranged", nil, { 0.45, 0.75, 1.0, 1 })
+--[[ The ranged timer has a bar of its own rather than sharing the main hand's.
+     No class gate: a warrior with a gun gets it too, and anyone holding nothing
+     ranged just sees the bar hide itself. ]]--
+defineSwing("ranged", "Ranged", "ranged", "ranged", { 0.45, 0.75, 1.0, 1 })

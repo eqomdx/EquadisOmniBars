@@ -76,7 +76,7 @@ local MANA_PER_INT = 15
 local M = OB.RegisterModule({
     id = "druidmana",
     name = "Druid Mana",
-    slot = "aux",
+    bar = "secondary",
 
     --[[ Outranks the range readout, so a druid's spare slot fills with the
          thing only a druid can use and everyone else's fills with the thing

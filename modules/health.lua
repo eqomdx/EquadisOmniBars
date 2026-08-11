@@ -15,7 +15,7 @@ local OB = EquadisOmniBars
 local M = OB.RegisterModule({
     id = "health",
     name = "Health",
-    slot = "health",
+    bar = "health",
     priority = 10,
     renders = "bar",
     tickly = false,
@@ -31,11 +31,25 @@ local M = OB.RegisterModule({
         lowEnable = false,
         lowThreshold = 0.35,
         lowColor = { 0.90, 0.10, 0.10, 1 },
+
+        --[[ Reserved, and read by nothing. The intent is a bar that slides from
+             green through to red as health falls, the way the threat meter
+             shades. The checkbox exists so the plan is visible where the setting
+             will live; its caption says outright that it does not work yet.
+
+             Do not wire this up incidentally -- it needs a colour ramp and a
+             decision about how it interacts with Colour By Class and the low
+             health override, none of which are designed. ]]--
+        healthGradient = false,
     },
 
     options = {
-        { "Bar Colour", "color", "color", true, nil, nil, nil, "!classColor" },
+        --[[ Stays visible when Colour By Class is on. Class colour *overrides*
+             this swatch rather than replacing the setting, and hiding the row
+             made the override look like the colour had been deleted. ]]--
+        { "Bar Colour", "color", "color", true },
         { "Colour By Class", "classColor", "boolean" },
+        { "Colour By Remaining Health - NOT ADDED YET", "healthGradient", "boolean" },
         { "Text", "textMode", OB.Enum(
                 { "none", "value", "percent", "max" },
                 { "None", "Current Only", "Percentage", "Current / Max" }) },

@@ -69,22 +69,15 @@ function OB.BindSlots()
 
     OB.eventMap = {}
 
-    for i = 1, table.getn(OB.slotOrder) do
-        local slotId = OB.slotOrder[i]
-        local id = OB.ResolveOccupant(slotId)
+    for i = 1, table.getn(OB.barOrder) do
+        local slotId = OB.barOrder[i]
+        local id = OB.Occupant(slotId)
         local m = id and OB.modules[id]
 
-        --[[ A module occupies at most one slot. The unbind pass above clears
-             every slotId, so a module still carrying one was claimed earlier in
-             this same walk and the later slot is simply left empty.
-
-             Two slots really can resolve to the same module without anyone
-             having made a mistake: a hunter's explicit points = "range" and the
-             automatic occupant of aux are both the range module. Without this
-             guard the second bind overwrites m.slotId and the module draws in
-             one slot while reading another's geometry. Slot order decides the
-             winner, which puts the explicit assignment first. ]]--
-        if m and m.slotId then m = nil end
+        --[[ There was a guard here against one module being bound to two bars.
+             It is unreachable now: a module names exactly one bar, so two bars
+             cannot resolve to it. The invariant is structural rather than
+             defended -- which is the good kind. ]]--
 
         if m then
             local slot = OB.profile.slots[slotId]

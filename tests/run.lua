@@ -117,30 +117,20 @@ end
 -- 1. every class boots, and lands on the right occupants
 -- ---------------------------------------------------------------------------
 
---[[ aux is where the two Phase 2 modules land. Every class gets the range
-     readout there except a druid, whose secondary mana outranks it, and a
-     hunter, whose range readout is already in the points slot -- one module
-     never occupies two slots, so the automatic occupant of aux loses to the
-     explicit assignment and the slot is left empty. ]]--
+--[[ One bar, one module, fixed. The only two that vary by class are the ones
+     gated on it: Extras (combo points, so rogues and druids) and Secondary
+     Resource (the druid mana estimate). Everything else is the same everywhere,
+     which is the whole point of dropping the assignment layer. ]]--
 local expected = {
-    WARRIOR = { power = 1, points = nil,           swingB = "swing_off",
-                swingA = "swing_main",  aux = "range" },
-    PALADIN = { power = 0, points = nil,           swingB = "swing_off",
-                swingA = "swing_main",  aux = "range" },
-    HUNTER  = { power = 0, points = "range",       swingB = nil,
-                swingA = "swing_ranged", aux = nil },
-    ROGUE   = { power = 3, points = "combopoints", swingB = "swing_off",
-                swingA = "swing_main",  aux = "range" },
-    PRIEST  = { power = 0, points = nil,           swingB = "swing_off",
-                swingA = "swing_main",  aux = "range" },
-    SHAMAN  = { power = 0, points = nil,           swingB = "swing_off",
-                swingA = "swing_main",  aux = "range" },
-    MAGE    = { power = 0, points = nil,           swingB = "swing_off",
-                swingA = "swing_main",  aux = "range" },
-    WARLOCK = { power = 0, points = nil,           swingB = "swing_off",
-                swingA = "swing_main",  aux = "range" },
-    DRUID   = { power = 3, points = "combopoints", swingB = "swing_off",
-                swingA = "swing_main",  aux = "druidmana" },
+    WARRIOR = { power = 1, extras = nil,           secondary = nil },
+    PALADIN = { power = 0, extras = nil,           secondary = nil },
+    HUNTER  = { power = 0, extras = nil,           secondary = nil },
+    ROGUE   = { power = 3, extras = "combopoints", secondary = nil },
+    PRIEST  = { power = 0, extras = nil,           secondary = nil },
+    SHAMAN  = { power = 0, extras = nil,           secondary = nil },
+    MAGE    = { power = 0, extras = nil,           secondary = nil },
+    WARLOCK = { power = 0, extras = nil,           secondary = nil },
+    DRUID   = { power = 3, extras = "combopoints", secondary = "druidmana" },
 }
 
 local order = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST",
@@ -169,10 +159,23 @@ for i = 1, table.getn(order) do
 
     eq(occupant("resource"), "power", "resource slot holds power")
     eq(occupant("health"), "health", "health slot holds health")
-    eq(occupant("swingA"), want.swingA, "swingA occupant")
-    eq(occupant("swingB"), want.swingB, "swingB occupant")
-    eq(occupant("points"), want.points, "points occupant")
-    eq(occupant("aux"), want.aux, "aux occupant")
+    eq(occupant("mainhand"), "mainhand", "the main hand bar holds the main hand timer")
+    eq(occupant("offhand"), "offhand", "the off hand bar holds the off hand timer")
+    eq(occupant("ranged"), "ranged", "the ranged bar holds the ranged timer")
+    eq(occupant("distance"), "distance", "the distance bar holds the distance readout")
+    eq(occupant("extras"), want.extras, "extras occupant")
+    eq(occupant("secondary"), want.secondary, "secondary resource occupant")
+
+    -- a bar no module on this class can fill is not offered in the panel at all
+    local listed = {}
+    local bars = OB.BarsForClass()
+    for b = 1, table.getn(bars) do listed[bars[b]] = true end
+
+    check(listed.health and listed.resource, "every class lists the universal bars")
+    eq(listed.extras and true or false, want.extras ~= nil,
+            "the extras bar is listed only when this class has one")
+    eq(listed.secondary and true or false, want.secondary ~= nil,
+            "the secondary resource bar likewise")
 
     -- the whole promise of the slot model: same rectangles everywhere
     local slots = OB.profile.slots
@@ -341,7 +344,7 @@ eq(swing.mainStart, 0, "stopped timers are cleared, not left at full")
 
 -- an idle swing bar reads as ready rather than empty
 Stub.Tick(0.05, 2)
-local mh = OB.modules.swing_main.frame
+local mh = OB.modules.mainhand.frame
 near(mh.fill.width, 200, 1, "an idle swing bar reads as ready")
 
 -- ---------------------------------------------------------------------------
@@ -417,7 +420,7 @@ check(combo.frame.bars[5]:GetAlpha() == 1, "inactive points keep frame alpha at 
 -- segments sit edge to edge and add up to the slot width
 local total = 0
 for i = 1, 5 do total = total + combo.frame.bars[i].width end
-check(total <= OB.profile.slots.points.w and total >= OB.profile.slots.points.w - 5,
+check(total <= OB.profile.slots.extras.w and total >= OB.profile.slots.extras.w - 5,
         "segments fill the slot width", "total " .. total)
 
 -- ---------------------------------------------------------------------------
@@ -483,48 +486,59 @@ OB.NudgeSlot("health", 999999, 0)
 eq(slots.health.x, OB.POS_MAX, "x clamps to the shared maximum")
 
 -- ---------------------------------------------------------------------------
--- 10. reassignment: a hunter's range slot, done by hand
+-- 10. one bar, one module, and nothing to assign
+--
+-- This section used to test reassignment -- putting any module in any slot, with
+-- "auto" and "none" sentinels. That whole layer is gone, so what is left to
+-- prove is the property that replaced it: the pairing is fixed, declared by the
+-- module, and unreachable from the config.
 -- ---------------------------------------------------------------------------
 
-context = "assignment: "
+context = "bars: "
 OB = boot("ROGUE", 3)
 
--- put health where the combo points are; combo points must vacate
-OB.AssignSlot("points", "health")
-OB.BindSlots()
-eq(OB.bound.points and OB.bound.points.id, "health", "the slot took the new occupant")
-check(OB.bound.health == nil, "the module vacated its previous slot")
+check(OB.profile.assign == nil, "a profile carries no assignment table at all")
+check(OB.AssignSlot == nil, "and there is no way to write one")
 
--- and back to automatic
-OB.AssignSlot("points", "auto")
-OB.AssignSlot("health", "auto")
-OB.BindSlots()
-eq(OB.bound.points and OB.bound.points.id, "combopoints", "auto resolves again")
-eq(OB.bound.health and OB.bound.health.id, "health", "the vacated slot refills")
+-- every bound module sits in the bar its descriptor names
+for barId, m in pairs(OB.bound) do
+    eq(m.bar, barId, m.id .. " is bound to the bar it declares")
+    eq(m.slotId, barId, "and knows which bar it holds")
+end
 
--- "none" empties a slot outright
-OB.AssignSlot("points", "none")
+--[[ Disabling a module empties its bar rather than handing the bar to something
+     else. There is no "something else" to hand it to any more. ]]--
+OB.profile.modulesEnabled.combopoints = false
 OB.BindSlots()
-check(OB.bound.points == nil, "none empties a slot")
+check(OB.bound.extras == nil, "disabling a module empties its bar")
 
--- the hunter defaults are seeded data, not a branch in the resolver
+OB.profile.modulesEnabled.combopoints = nil
+OB.BindSlots()
+eq(OB.bound.extras and OB.bound.extras.id, "combopoints", "re-enabling refills it")
+
+--[[ The bar still appears in the panel list while its module is switched off --
+     otherwise there would be nowhere to switch it back on from. Class
+     applicability and the enable toggle are different questions. ]]--
+OB.profile.modulesEnabled.combopoints = false
+local listedWhileOff = false
+local bars = OB.BarsForClass()
+for i = 1, table.getn(bars) do
+    if bars[i] == "extras" then listedWhileOff = true end
+end
+check(listedWhileOff, "a disabled module's bar is still listed, so it can be re-enabled")
+OB.profile.modulesEnabled.combopoints = nil
+
+-- a hunter has no combo points, so no Extras bar exists to list
 OB = boot("HUNTER", 0)
-eq(OB.profile.assign.HUNTER.points, "range", "the hunter default seeds a range assignment")
-eq(OB.bound.points and OB.bound.points.id, "range", "and it resolves to the module")
-eq(OB.bound.swingA and OB.bound.swingA.id, "swing_ranged",
-        "a hunter's swing slot holds the ranged timer")
+check(OB.bound.extras == nil, "a hunter has no extras occupant")
 
---[[ Both the explicit points assignment and the automatic occupant of aux
-     resolve to the range module. Slot order settles it: points is bound first,
-     so the explicit assignment wins and aux is left empty rather than the two
-     slots sharing one descriptor. ]]--
-check(OB.bound.aux == nil, "a module already placed does not also fill a later slot")
-eq(OB.modules.range.slotId, "points", "and it knows which slot it actually holds")
-
--- an assignment naming a module that does not exist is simply an empty slot
-OB.profile.assign.HUNTER.swingB = "not_a_module"
-OB.BindSlots()
-check(OB.bound.swingB == nil, "an unknown module id leaves the slot empty rather than erroring")
+local hunterBars = {}
+bars = OB.BarsForClass()
+for i = 1, table.getn(bars) do hunterBars[bars[i]] = true end
+check(not hunterBars.extras, "and no extras bar in the list")
+check(not hunterBars.secondary, "nor a secondary resource bar")
+check(hunterBars.ranged and hunterBars.distance,
+        "but the ranged timer and the distance readout are both there")
 
 -- ---------------------------------------------------------------------------
 -- 11. events are registered from the bound set, not hardcoded
@@ -624,15 +638,15 @@ eq(OB.profile.join, false, "join imported")
 eq(OB.profile.texture, 4, "texture name mapped to an index")
 eq(OB.profile.border, 2, "border name mapped to an index")
 
-eq(OB.profile.slots.points.w, 180, "combo geometry landed on the points slot")
-eq(OB.profile.slots.points.y, 130, "including its position")
-eq(OB.profile.slots.points.flip, true, "and its flip")
+eq(OB.profile.slots.extras.w, 180, "combo geometry landed on the points slot")
+eq(OB.profile.slots.extras.y, 130, "including its position")
+eq(OB.profile.slots.extras.flip, true, "and its flip")
 eq(OB.profile.slots.resource.h, 26, "energy geometry landed on the resource slot")
-eq(OB.profile.slots.swingA.y, 100, "main hand geometry landed on swingA")
-eq(OB.profile.slots.swingB.y, 115, "off hand geometry landed on swingB")
+eq(OB.profile.slots.mainhand.y, 100, "main hand geometry landed on swingA")
+eq(OB.profile.slots.offhand.y, 115, "off hand geometry landed on swingB")
 
-eq(OB.profile.modules.swing_main.decimals, 2, "main hand behaviour imported")
-eq(OB.profile.modules.swing_main.deplete, true, "including deplete")
+eq(OB.profile.modules.mainhand.decimals, 2, "main hand behaviour imported")
+eq(OB.profile.modules.mainhand.deplete, true, "including deplete")
 eq(OB.profile.modules.power.textMode, "percent", "energy text mode imported")
 eq(OB.profile.modules.power.byType[3].ticker, "nofull", "energy ticker mode imported")
 near(OB.profile.modules.power.byType[0].color[3], 0.90, 0.001,
@@ -640,11 +654,18 @@ near(OB.profile.modules.power.byType[0].color[3], 0.90, 0.001,
 near(OB.profile.modules.combopoints.colors[1][1], 1, 0.001, "combo colours imported")
 
 -- imports run once: a second boot must not overwrite tuned values
-OB.profile.scale = 1.9
+OB.profile.scale = 1.4
 local saved = EquadisOmniBarsDB
 RogueBarsConfig.Scale = 0.7
 OB = boot("ROGUE", 3, { savedVariables = saved })
-near(OB.profile.scale, 1.9, 0.001, "a second login does not re-import over tuned values")
+near(OB.profile.scale, 1.4, 0.001, "a second login does not re-import over tuned values")
+
+--[[ A scale saved before the ceiling came down is brought inside it rather than
+     refused, so the slider can always reach the value the profile holds. ]]--
+OB.profile.scale = 1.9
+saved = EquadisOmniBarsDB
+OB = boot("ROGUE", 3, { savedVariables = saved })
+near(OB.profile.scale, OB.SCALE_MAX, 0.001, "a scale above the ceiling clamps on load")
 
 RogueBarsConfig = nil
 
@@ -676,7 +697,7 @@ OB.SetProfile("Raiding")
 eq(OB.profile.slots.resource.y, 7, "and forward again")
 
 OB.ResetProfile()
-eq(OB.profile.slots.resource.y, 80, "resetting restores this profile's defaults")
+eq(OB.profile.slots.resource.y, 98, "resetting restores this profile's defaults")
 eq(EquadisOmniBarsDB.profiles.Default.slots.resource.y, 42,
         "and leaves the other profile alone")
 
@@ -792,32 +813,6 @@ if check1 then
     eq(OB.profile.locked, not before, "clicking a checkbox writes the config")
 end
 
---[[ The font preview is decoration: it carries a caption and no value, so it
-     renders on the page and stays out of the generated slash help, where an
-     option nobody can set would only be noise. ]]--
-check(OB.optionIndex.global["__preview_font"] == nil,
-        "the preview row is not offered as a slash option")
-
-OB.profile.font = OB.fontIndex["Continuum"] or 1
-OB.profile.fontName = OB.fonts[OB.profile.font]
-OB.profile.fontSize = 18
-OB.RefreshPanel()
-
-local previewRow
-for i = 1, table.getn(OB.settings.categories) do
-    local page = OB.settings.categories[i].page
-    for r = 1, table.getn(page.rows) do
-        if page.rows[r].kind == "preview" then previewRow = page.rows[r] end
-    end
-end
-
-check(previewRow ~= nil, "the General page carries a font preview")
-if previewRow then
-    local face, size = previewRow.label:GetFont()
-    eq(face, OB.fontPaths[OB.profile.font], "the preview renders in the chosen face")
-    eq(size, 18, "at the chosen size")
-end
-
 -- a slider writes through, honouring its factor
 local scale = _G["EqOBSlider_global_x_scale"]
 check(scale ~= nil, "the Scale slider exists")
@@ -828,7 +823,7 @@ if scale then
 end
 
 -- position sliders must route through the nudge path so Join still applies
-OB.panel.slot = "resource"
+OB.panel.bar = "resource"
 OB.profile.join = true
 local ySlider = _G["EqOBSlider_slot_x_y"]
 check(ySlider ~= nil, "the Y slider exists")
@@ -842,40 +837,62 @@ end
 
 -- every page lays out without error, on every slot, with every occupant
 try("all pages lay out for every slot", function()
-    for i = 1, table.getn(OB.slotOrder) do
-        OB.panel.slot = OB.slotOrder[i]
+    for i = 1, table.getn(OB.barOrder) do
+        OB.panel.bar = OB.barOrder[i]
         OB.RefreshPanel()
     end
 end)
 
--- the occupant dropdown offers a real list and applying one rebinds
-OB.panel.slot = "points"
-local occupantDrop = _G["EqOBOccupant"]
-check(occupantDrop ~= nil, "the occupant dropdown exists")
-if occupantDrop then
-    local buttons = Stub.OpenMenu(occupantDrop)
-    check(table.getn(buttons) >= 3, "it offers auto, none and the modules",
-            "got " .. table.getn(buttons))
+--[[ The bar selector offers this class's bars, and picking one moves the page.
 
-    check(Stub.ChooseMenu(occupantDrop, "health"), "choosing health applies")
-    eq(OB.bound.points and OB.bound.points.id, "health",
-            "the panel reassigned the slot")
+     The occupant dropdown that used to sit beside it is gone with the assignment
+     layer, so what is left to check is that the selector alone drives the page. ]]--
+local selector = _G["EqOBBarSelector"]
+check(selector ~= nil, "the bar selector exists")
+if selector then
+    local buttons = Stub.OpenMenu(selector)
+    eq(table.getn(buttons), table.getn(OB.BarsForClass()),
+            "it offers exactly this class's bars")
 
-    --[[ Moving a module vacates the slot it came from, so the health slot is now
-         empty. Nothing puts it back on its own -- one module, one slot -- so the
-         test restores it the same way a user would. ]]--
-    check(OB.bound.health == nil, "its previous slot was vacated")
-
-    Stub.ChooseMenu(occupantDrop, "auto")
-    eq(OB.bound.points and OB.bound.points.id, "combopoints", "and back to auto")
-
-    OB.AssignSlot("health", "auto")
-    OB.BindSlots()
-    eq(OB.bound.health and OB.bound.health.id, "health", "and health is restored")
+    check(Stub.ChooseMenu(selector, "extras"), "choosing a bar applies")
+    eq(OB.panel.bar, "extras", "and the page follows it")
 end
 
+check(_G["EqOBOccupant"] == nil, "there is no occupant dropdown any more")
+
+--[[ No single-select dropdown may set info.checked.
+
+     1.12's AddButton shows a check when it is truthy and never hides one, and
+     the check textures are global and shared across every dropdown in the
+     client -- so one menu's tick stays lit beside the next menu's. Selection is
+     driven by SetSelectedValue alone, which both shows and hides. Setting both
+     is what put several ticks in the profile dropdown at once.
+
+     Every entry must still carry a `value`, because that is what Refresh
+     matches against to decide which row is selected. ]]--
+local checkedRows, valuelessRows, menusSeen = 0, 0, 0
+
+for i = 1, table.getn(OB.settings.categories) do
+    local page = OB.settings.categories[i].page
+    for r = 1, table.getn(page.rows) do
+        local widget = page.rows[r]
+        if widget.initialize then
+            menusSeen = menusSeen + 1
+            local buttons = Stub.OpenMenu(widget)
+            for b = 1, table.getn(buttons) do
+                if buttons[b].checked ~= nil then checkedRows = checkedRows + 1 end
+                if buttons[b].value == nil then valuelessRows = valuelessRows + 1 end
+            end
+        end
+    end
+end
+
+check(menusSeen > 3, "several dropdowns were inspected")
+eq(checkedRows, 0, "no dropdown entry sets info.checked")
+eq(valuelessRows, 0, "and every entry carries a value for Refresh to match")
+
 -- module rows appear only for the occupying module
-OB.panel.slot = "resource"
+OB.panel.bar = "resource"
 OB.RefreshPanel()
 local tickerDrop = _G["EqOBDrop_variant_power_ticker"]
 check(tickerDrop ~= nil, "the power ticker dropdown exists")
@@ -889,14 +906,14 @@ if comboSwatch then
             "combo point rows are hidden while the resource slot is selected")
 end
 
-OB.panel.slot = "points"
+OB.panel.bar = "extras"
 OB.RefreshPanel()
 if comboSwatch then
-    check(comboSwatch:IsShown(), "and shown when the points slot is selected")
+    check(comboSwatch:IsShown(), "and shown when the extras bar is selected")
 end
 
 -- an enum dropdown stores its string, not an index
-OB.panel.slot = "resource"
+OB.panel.bar = "resource"
 OB.RefreshPanel()
 if tickerDrop then
     Stub.ChooseMenu(tickerDrop, 2)
@@ -925,7 +942,7 @@ if barColor then
 end
 
 -- a dependent row hides when its condition is off
-OB.panel.slot = "health"
+OB.panel.bar = "health"
 OB.RefreshPanel()
 local lowColor = _G["EqOBSwatch_module_health_lowColor"]
 check(lowColor ~= nil, "the low health colour swatch exists")
@@ -1012,16 +1029,22 @@ near(OB.profile.scale, 1.2, 0.001, "a global option is settable")
 run("fontsize 16")
 eq(OB.profile.fontSize, 16, "a camelCase key resolves case-insensitively")
 
-run("slot resource h 20")
-eq(OB.profile.slots.resource.h, 20, "a slot option is settable")
+run("bar resource h 20")
+eq(OB.profile.slots.resource.h, 20, "a bar option is settable")
 
 run("power textMode percent")
 eq(OB.profile.modules.power.textMode, "percent", "a module option is settable")
 
-run("assign points none")
-check(OB.bound.points == nil, "assign empties a slot")
-run("assign points auto")
-eq(OB.bound.points and OB.bound.points.id, "combopoints", "and fills it again")
+--[[ `/eqob assign` is gone with the assignment layer. A bar is emptied by
+     switching its module off, which is a different question with a different
+     answer, and the prompt should say so rather than silently doing nothing. ]]--
+Stub.chat = {}
+run("assign extras none")
+local complained = false
+for i = 1, table.getn(Stub.chat) do
+    if string.find(Stub.chat[i], "unknown option") then complained = true end
+end
+check(complained, "a retired command is reported rather than ignored")
 
 local before = OB.profile.locked
 run("locked")
@@ -1075,67 +1098,67 @@ check(not tickBar.ticks[1].shown, "no fraction hides the tick")
 context = "range backend: "
 
 OB = boot("HUNTER", 0)
-eq(OB.modules.range.backend.id, "bands",
+eq(OB.modules.distance.backend.id, "bands",
         "with no distance API the readout falls back to bands")
-eq(OB.modules.range.frame.visible, 4, "and draws four segments")
+eq(OB.modules.distance.frame.visible, 4, "and draws four segments")
 
 OB = boot("HUNTER", 0, { unitXP = true })
-eq(OB.modules.range.backend.id, "precise",
+eq(OB.modules.distance.backend.id, "precise",
         "a client that can measure gets the precise readout")
-eq(OB.modules.range.frame.visible, 1, "which is one continuous bar")
+eq(OB.modules.distance.frame.visible, 1, "which is one continuous bar")
 
 -- the surplus segments are parked, not destroyed, so the shape can change back
-check(OB.modules.range.frame.count == 4, "the frames the shape does not need still exist")
-check(not OB.modules.range.frame.bars[4]:IsShown(), "they are simply hidden")
+check(OB.modules.distance.frame.count == 4, "the frames the shape does not need still exist")
+check(not OB.modules.distance.frame.bars[4]:IsShown(), "they are simply hidden")
 
 -- a forced backend that cannot run here falls back rather than drawing nothing
-OB.profile.modules.range.backend = "precise"
+OB.profile.modules.distance.backend = "precise"
 Stub.SetUnitXP(false)
-OB.modules.range:Probe()
-eq(OB.modules.range.backend.id, "bands", "a forced backend that cannot run falls back")
-eq(OB.modules.range.frame.visible, 4, "and the shape follows it back")
+OB.modules.distance:Probe()
+eq(OB.modules.distance.backend.id, "bands", "a forced backend that cannot run falls back")
+eq(OB.modules.distance.frame.visible, 4, "and the shape follows it back")
 
 --[[ Forcing a backend that cannot run usually falls back to the one already in
      use, so a message keyed off a *change* of backend would say nothing in the
      one case where the user is waiting to be told something. ]]--
 OB = boot("HUNTER", 0)
 local chatBefore = table.getn(Stub.chat)
-OB.profile.modules.range.backend = "precise"
-OB.modules.range:Probe()
+OB.profile.modules.distance.backend = "precise"
+OB.modules.distance:Probe()
 check(table.getn(Stub.chat) > chatBefore,
         "forcing an unavailable backend says so even when the fallback is unchanged")
 
 -- and does not keep saying it on every loading screen
 chatBefore = table.getn(Stub.chat)
-OB.modules.range:Probe()
+OB.modules.distance:Probe()
 Stub.FireEvent("PLAYER_ENTERING_WORLD")
 eq(table.getn(Stub.chat), chatBefore, "but only once")
 
 -- the action backend is unavailable until it is told which action to watch
-OB.profile.modules.range.backend = "action"
-OB.modules.range:Probe()
-eq(OB.modules.range.backend.id, "bands", "the action backend needs a slot to watch")
+OB.profile.modules.distance.backend = "action"
+OB.modules.distance:Probe()
+eq(OB.modules.distance.backend.id, "bands", "the action backend needs a slot to watch")
 
-OB.profile.modules.range.actionSlot = 25
-OB.modules.range:Probe()
-eq(OB.modules.range.backend.id, "action", "and runs once it has one")
+OB.profile.modules.distance.actionSlot = 25
+OB.modules.distance:Probe()
+eq(OB.modules.distance.backend.id, "action", "and runs once it has one")
 
 --[[ Capture arms a wrapper around the global UseAction -- there is no
      hooksecurefunc in 1.12 -- which records the next action pressed and then
      stands down. The wrapper must still call whatever it displaced, or arming
      capture once would break the player's action bars for the session. ]]--
-local capture = OB.optionIndex.modules.range.capture
+local capture = OB.optionIndex.modules.distance.capture
 OB.ApplyOption(capture, true)
-check(OB.modules.range.capturing, "arming capture watches for the next action")
+check(OB.modules.distance.capturing, "arming capture watches for the next action")
 
 UseAction(42, nil, nil)
-eq(OB.profile.modules.range.actionSlot, 42, "pressing an action captures its slot")
+eq(OB.profile.modules.distance.actionSlot, 42, "pressing an action captures its slot")
 eq(Stub.lastAction, 42, "and the action itself still fires")
-check(not OB.modules.range.capturing, "capture stands down after one press")
-check(not OB.profile.modules.range.capture, "and the checkbox clears itself")
+check(not OB.modules.distance.capturing, "capture stands down after one press")
+check(not OB.profile.modules.distance.capture, "and the checkbox clears itself")
 
 UseAction(7, nil, nil)
-eq(OB.profile.modules.range.actionSlot, 42, "a later press is not captured")
+eq(OB.profile.modules.distance.actionSlot, 42, "a later press is not captured")
 eq(Stub.lastAction, 7, "but still fires")
 
 -- ---------------------------------------------------------------------------
@@ -1145,7 +1168,7 @@ eq(Stub.lastAction, 7, "but still fires")
 context = "range bands: "
 OB = boot("HUNTER", 0, { hasTarget = true })
 
-local range = OB.modules.range
+local range = OB.modules.distance
 
 local function readRange(distance)
     Stub.player.targetDistance = distance
@@ -1195,8 +1218,8 @@ eq(bandsCount, 4, "the preview walks every band, narrow ones included")
 context = "range precise: "
 OB = boot("HUNTER", 0, { unitXP = true, hasTarget = true })
 
-range = OB.modules.range
-local rangeCfg = OB.profile.modules.range
+range = OB.modules.distance
+local rangeCfg = OB.profile.modules.distance
 rangeCfg.maxRange = 40
 rangeCfg.deadZone = 8
 
@@ -1328,8 +1351,8 @@ local druidWorld = {
 OB = boot("DRUID", 0, druidWorld)
 local mana = OB.modules.druidmana
 
-eq(OB.bound.aux and OB.bound.aux.id, "druidmana",
-        "a druid's spare slot holds the mana estimate, outranking the range readout")
+eq(OB.bound.secondary and OB.bound.secondary.id, "druidmana",
+        "a druid has a secondary resource bar")
 eq(mana.shiftCost, 60, "the shapeshift cost is read off the spellbook tooltip")
 
 --[[ ceil((10 * 2) / 5): mana per five seconds restated per two second tick. The
@@ -1368,7 +1391,7 @@ eq(mana.cur, 1000, "returning to caster form resyncs from an API telling the tru
      full bar on it; there is nothing to estimate from, so nothing is drawn. ]]--
 OB = boot("DRUID", 3, druidWorld)
 mana = OB.modules.druidmana
-OB.profile.slots.aux.hide = false
+OB.profile.slots.distance.hide = false
 OB.Refresh(true)
 Stub.Tick(0.05, 2)
 
@@ -1376,7 +1399,51 @@ check(not mana.seeded, "a druid who logs in shifted has no baseline")
 check(not mana.frame:IsShown(), "and the bar stays hidden rather than inventing one")
 
 -- ---------------------------------------------------------------------------
--- 27. the aux slot migration
+-- 26b. a bar with nothing to draw hides itself
+--
+-- SetBarFill(0) hides the fill and leaves the background painted, which is an
+-- empty trough -- and an empty trough reads as a bar that has broken rather than
+-- one with nothing to say. The first thing anyone asked about it was why their
+-- off hand timer was stuck at zero.
+-- ---------------------------------------------------------------------------
+
+context = "empty bars: "
+
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3, { offSpeed = 1.7 })
+OB.profile.slots.distance.hide = false
+OB.Refresh(true)
+Stub.Tick(0.05, 2)
+
+check(OB.modules.offhand.frame:IsShown(), "an equipped off hand draws its bar")
+
+-- unequip it
+Stub.player.offSpeed = 0
+Stub.Tick(0.05, 2)
+check(not OB.modules.offhand.frame:IsShown(),
+        "with nothing in the off hand the whole bar goes, background and all")
+
+Stub.player.offSpeed = 1.7
+Stub.Tick(0.05, 2)
+check(OB.modules.offhand.frame:IsShown(), "and comes back when something is equipped")
+
+-- the distance readout does the same with no target
+Stub.player.hasTarget = true
+OB.modules.distance.nextPoll = 0
+Stub.Tick(0.05, 3)
+check(OB.modules.distance.frame:IsShown(), "a target gives the distance bar something to say")
+
+Stub.player.hasTarget = false
+OB.modules.distance.nextPoll = 0
+Stub.Tick(0.05, 3)
+check(not OB.modules.distance.frame:IsShown(), "no target and it hides rather than sitting empty")
+
+-- ---------------------------------------------------------------------------
+-- 27. slots became bars
+--
+-- The migration that renamed six slots into eight bars, dropped the assignment
+-- layer and restacked. A tuned layout has to survive the rename intact -- the
+-- rename is the whole reason a migration exists rather than a defaults change.
 -- ---------------------------------------------------------------------------
 
 context = "migration: "
@@ -1386,24 +1453,71 @@ OB = boot("ROGUE", 3, { savedVariables = {
     version = 1,
     migrated = { roguebars = true },
     chars = { ["Turtle WoW - TestROGUE"] = "Default" },
-    profiles = { Default = { schema = 1, assign = { ["*"] = { aux = "none" } } } },
+    profiles = { Default = {
+        schema = 2,
+        assign = { ["*"] = { aux = "none" }, ROGUE = { points = "health" } },
+        slots = {
+            -- a layout somebody tuned: narrower, taller, nudged right
+            swingA = { x = 40, y = 93, w = 150, h = 20, textSize = 14,
+                       hide = false, flip = true, bg = { 1, 0, 0, 0.3 } },
+            points = { x = 40, y = 115, w = 150, h = 10 },
+            aux    = { x = 40, y = 38,  w = 150, h = 14 },
+        },
+        modules = {
+            swing_main = { decimals = 2, deplete = true },
+            range = { maxRange = 41 },
+        },
+    } },
 } })
 
-eq(OB.profile.schema, 2, "an old profile is migrated forward")
-eq(OB.profile.assign["*"].aux, "auto",
-        "the aux sentinel is re-read now that a module can occupy the slot")
-eq(OB.bound.aux and OB.bound.aux.id, "range", "so the slot fills")
+eq(OB.profile.schema, 3, "an old profile is migrated forward")
 
--- an explicit choice made since is not overwritten
-EquadisOmniBarsDB = nil
-OB = boot("ROGUE", 3, { savedVariables = {
-    version = 1,
-    migrated = { roguebars = true },
-    chars = { ["Turtle WoW - TestROGUE"] = "Default" },
-    profiles = { Default = { schema = 2, assign = { ["*"] = { aux = "none" } } } },
-} })
+-- geometry survives the rename, all of it except the Y the restack rewrites
+local mainhand = OB.profile.slots.mainhand
+check(mainhand ~= nil, "swingA became mainhand")
+eq(mainhand.w, 150, "a tuned width survives")
+eq(mainhand.h, 20, "and height")
+eq(mainhand.x, 40, "and X")
+eq(mainhand.textSize, 14, "and text size")
+eq(mainhand.flip, true, "and flip")
+near(mainhand.bg[1], 1, 0.001, "and background colour")
 
-eq(OB.profile.assign["*"].aux, "none", "a profile already on the new schema is left alone")
+check(OB.profile.slots.swingA == nil, "the old id is gone")
+check(OB.profile.slots.extras ~= nil, "points became extras")
+check(OB.profile.slots.distance ~= nil, "aux became distance")
+check(OB.profile.slots.ranged ~= nil, "and the two new bars arrive from defaults")
+check(OB.profile.slots.secondary ~= nil, "both of them")
+
+-- module settings move with their ids
+eq(OB.profile.modules.mainhand.decimals, 2, "module settings follow the rename")
+eq(OB.profile.modules.mainhand.deplete, true, "all of them")
+eq(OB.profile.modules.distance.maxRange, 41, "range became distance")
+check(OB.profile.modules.swing_main == nil, "and the old keys are gone")
+
+-- the assignment layer is dropped outright, including a deliberate one
+check(OB.profile.assign == nil, "the assignment table is dropped")
+eq(OB.bound.extras and OB.bound.extras.id, "combopoints",
+        "so a slot that had been reassigned goes back to its own module")
+
+--[[ Restacked in the new order, and the cluster stays where it was rather than
+     jumping to the shipped default -- the top of the old stack becomes the top
+     of the new one. ]]--
+eq(OB.profile.slots.health.y, 115, "the stack keeps its old top")
+
+local lastY
+for i = 1, table.getn(OB.barOrder) do
+    local bar = OB.profile.slots[OB.barOrder[i]]
+    if lastY then
+        check(bar.y < lastY, OB.barOrder[i] .. " sits below the bar before it")
+    end
+    lastY = bar.y
+end
+
+-- a profile already on schema 3 is left entirely alone
+local tuned = EquadisOmniBarsDB
+tuned.profiles.Default.slots.health.y = 400
+OB = boot("ROGUE", 3, { savedVariables = tuned })
+eq(OB.profile.slots.health.y, 400, "a current profile is not restacked again")
 
 -- ---------------------------------------------------------------------------
 -- 28. the panel fails one control at a time

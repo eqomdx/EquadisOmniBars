@@ -12,7 +12,7 @@ local OB = EquadisOmniBars
 local M = OB.RegisterModule({
     id = "combopoints",
     name = "Combo Points",
-    slot = "points",
+    bar = "extras",
     priority = 10,
     classes = { ROGUE = true, DRUID = true },
     renders = "segments",

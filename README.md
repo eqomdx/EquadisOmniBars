@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.2.1 — in development.**
+> **Version 0.3.0 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -46,43 +46,45 @@ The framework is deliberately ahead of the features: modules declare their own
 settings, their own class gating and their own panel rows, so each item above is
 an addition rather than a rewrite.
 
-## The idea: slots, not bars
+## The idea: one layout, every character
 
 Most HUD addons give every bar its own position. That means a warrior's rage bar
 and a rogue's energy bar are two unrelated settings, and configuring an alt means
 starting over.
 
-OmniBars separates the rectangle from what is drawn in it.
+In OmniBars the **rectangle** and **what is drawn in it** are separate things.
+Position, size, texture, border and background belong to the bar and are shared
+by every character on the profile. Colour and behaviour belong to the module,
+because those are the things that *should* differ — energy yellow, rage red,
+health green.
 
-- A **slot** owns geometry and style: position, size, texture, border,
-  background, text size. It never knows what it contains.
-- A **module** owns behaviour and colour: energy ticks, combo points, swing
-  attribution, health.
-- An **assignment** maps a slot to a module, per class.
+So the resource bar is one rectangle. A rogue fills it with energy, a warrior with
+rage, a priest with mana: same place, same size, different colour. A druid
+shifting form does not move it either — only the colour and the ticker change.
 
-So the resource slot is one rectangle shared by every character on the profile. A
-rogue fills it with energy, a warrior with rage, a priest with mana — same place,
-same size, different colour. A hunter puts the range readout in the slot a rogue
-uses for combo points, because that is simply a different assignment.
+### The bars
 
-A druid never even changes assignment: the resource slot always holds the one
-power module, and shifting form only swaps which colour and ticker it uses. The
-bar does not move.
+Listed in the settings panel in this order, and stacked on screen the same way.
+Drag them into whatever order you actually want.
 
-### Slots
-
-| Slot | Default occupant |
+| Bar | Shows |
 |---|---|
-| `points` | Combo points (rogue, druid) · range readout (hunter) |
-| `swingB` | Off hand swing |
-| `swingA` | Main hand swing |
-| `resource` | Energy / rage / mana / focus, whichever the class uses |
-| `health` | Health |
-| `aux` | Range readout, or a druid's secondary mana. Hidden by default |
+| Health | Your health |
+| Resource | Energy / rage / mana / focus, whichever the class uses |
+| Main Hand | Main hand swing timer |
+| Off Hand | Off hand swing timer |
+| Ranged | Auto shot timer |
+| Distance | How far away your target is |
+| Secondary Resource | A druid's mana while shifted |
+| Extras | Class specific — combo points for a rogue or druid |
 
-An empty slot draws nothing and leaves a gap rather than closing it up — closing
-up would move the other bars, and then two characters with different occupancy
-would no longer line up. **Restack Occupied Slots** does it on demand instead.
+Bars your class cannot use are not listed at all: a warrior has no Extras and no
+Secondary Resource. A bar with nothing to say hides itself, so an empty off hand
+leaves no gap in the art — just space.
+
+That space is not closed up automatically, because bar positions are shared and
+closing a gap for one character would move another's. **Restack Occupied Bars**
+on the Bars page does it on demand.
 
 ## Modules today
 
@@ -103,10 +105,11 @@ combat log does not say which hand swung, a landed swing is attributed to
 whichever hand has been ready *longest* — which is what lets the pair recover on
 its own after a stun or a run out of range.
 
-**Health** — green by default, any colour, optionally your class colour, with an
-optional recolour below a threshold.
+**Health** — green by default, any colour, optionally your class colour (which
+overrides the swatch rather than replacing it), with an optional recolour below a
+threshold.
 
-**Range** — how far away your target is, drawn by whichever of three backends
+**Distance** — how far away your target is, drawn by whichever of three backends
 your client can actually support. With SuperWoW's `UnitXP` it is a real distance:
 a continuous bar with the dead zone marked and the yardage on it. Without one it
 falls back to four bands from `CheckInteractDistance`, exactly one lit — a
@@ -126,7 +129,7 @@ Every module can be switched off independently on the **Modules** page.
 ## Profiles
 
 One account-wide store. Every character starts on `Default`, which is why they
-all line up: move a slot on one and it moves for all of them. Create as many
+all line up: move a bar on one and it moves for all of them. Create as many
 named profiles as you like and bind characters to them individually.
 
 An existing `RogueBarsConfig` is imported into `Default` the first time OmniBars
@@ -138,11 +141,10 @@ loads, once. RogueBars' own saved variables are never modified.
 /eqob                          open the panel            (also /ob, /omnibars)
 /eqob help                     every option, every scope
 /eqob scale 120                a general option
-/eqob slot resource h 20       a slot's geometry
+/eqob bar resource h 20        a bar's geometry
 /eqob power ticker nofull      a module's setting
-/eqob assign points range      put a module in a slot
 /eqob profile use Raiding      use|new|copy|delete
-/eqob restack                  re-stack the occupied slots
+/eqob restack                  re-stack the occupied bars
 /eqob test                     preview every bar without a target
 /eqob selftest                 check the addon against your client
 /eqob reset                    this profile   ( reset all for every profile )
@@ -160,7 +162,7 @@ click you can type, and neither can drift out of step with the other.
 ## Moving things
 
 Drag any bar. Right-click one for a nudge overlay with 1px arrows. Or type exact
-coordinates on the Slots page.
+coordinates on the Bars page.
 
 **Move Bars Together** (on by default) drags the whole cluster and keeps the
 spacing. Turn it off to place bars individually; **Allow Bar Overlap** governs

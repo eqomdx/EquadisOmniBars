@@ -134,10 +134,12 @@ OB.rangeBackends.bands = {
 local POLL = 0.1
 
 local M = OB.RegisterModule({
-    id = "range",
-    name = "Range",
-    slot = "aux",
-    priority = 10,
+    --[[ "Distance", not "Range", because the bar next to it is the ranged swing
+         timer and the two were being confused constantly. This one answers "how
+         far away is my target"; that one answers "when does my next shot land". ]]--
+    id = "distance",
+    name = "Distance",
+    bar = "distance",
     renders = "segments",
     segments = 4,       -- the most any backend needs; the surplus is parked
     tickly = true,
@@ -189,7 +191,7 @@ local M = OB.RegisterModule({
 M.backend = OB.rangeBackends.bands
 
 function M:Config()
-    return OB.profile.modules.range
+    return OB.profile.modules.distance
 end
 
 -- ---------------------------------------------------------------------------
@@ -336,6 +338,12 @@ function M:OnStyle(slot)
     OB.StyleSegments(self.frame, slot, self.backend.segments)
 end
 
+--[[ Clear every segment and take the whole row off screen.
+
+     Hiding the group rather than just emptying it, for the same reason the swing
+     bars do: an empty background is a trough, and a trough reads as a bar that
+     has stopped working rather than one with nothing to report. There is no
+     target -- there is nothing to say, so say nothing. ]]--
 local function blank(group, slot)
     for i = 1, group.count do
         local bar = group.bars[i]
@@ -343,6 +351,8 @@ local function blank(group, slot)
         OB.ClearBarText(bar)
         OB.HideBarTicks(bar)
     end
+
+    group:Hide()
 end
 
 function M:OnDraw()
@@ -356,6 +366,8 @@ function M:OnDraw()
         blank(group, slot)
         return
     end
+
+    if not slot.hide then group:Show() end
 
     if self.backend.segments > 1 then
         for i = 1, group.visible or group.count do

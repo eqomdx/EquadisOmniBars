@@ -38,10 +38,9 @@ local ROW_ADVANCE = {
     header = 24,
     button = 28,
     editbox = 28,
-    preview = 30,
 }
 
-OB.panel = { slot = "resource" }
+OB.panel = { bar = "health" }
 
 -- ---------------------------------------------------------------------------
 -- scopes
@@ -49,7 +48,7 @@ OB.panel = { slot = "resource" }
 
 OB.scopes = {
     global = function(w) return OB.profile end,
-    slot = function(w) return OB.profile.slots[OB.panel.slot] end,
+    slot = function(w) return OB.profile.slots[OB.panel.bar] end,
     moduleToggle = function(w) return OB.profile.modulesEnabled end,
 
     module = function(w) return OB.profile.modules[w.module] end,
@@ -104,7 +103,7 @@ function OB.ApplyOption(w, value)
          go through the nudge path, or Join and collision are bypassed and the
          sliders become a second, disagreeing way to move a bar. ]]--
     if w.scope == "slot" and (w.key == "x" or w.key == "y") then
-        OB.SetSlotCoord(OB.panel.slot, w.key, value)
+        OB.SetSlotCoord(OB.panel.bar, w.key, value)
         return
     end
 
@@ -167,7 +166,7 @@ end
 local function rowVisible(w)
     -- a module's rows only appear while that module occupies the selected slot
     if w.module and w.scope ~= "moduleToggle" then
-        local occupant = OB.bound[OB.panel.slot]
+        local occupant = OB.bound[OB.panel.bar]
         if not occupant or occupant.id ~= w.module then return false end
     end
 
@@ -359,21 +358,40 @@ local function addDropDown(page, w)
 
     labelFor(page, drop, w.caption)
 
-    UIDropDownMenu_Initialize(drop, function()
+    --[[ No `info.checked` anywhere in here, and that is the whole point.
+
+         1.12's UIDropDownMenu_AddButton *shows* a check when info.checked is
+         truthy and never *hides* one when it is not -- only UIDropDownMenu_Refresh,
+         which SetSelectedValue calls, does both. And the check textures
+         (DropDownList1Button<N>Check) are process-global, shared by every
+         dropdown in the client. So setting info.checked as well as calling
+         SetSelectedValue means one path lights checks the other never clears,
+         and opening a second menu shows the first one's tick still lit beside
+         its own. That is exactly what was happening on the Profiles page.
+
+         Blizzard's own 1.12 dropdowns and RogueBars both omit info.checked
+         entirely and drive selection purely through SetSelectedValue. info.checked
+         is only correct for multi-select toggle menus, of which there are none
+         here.
+
+         SetText is gone for the same reason: Refresh already sets the label from
+         the matching button, and having it here masked the bug -- the label read
+         correctly while the tick sat on the wrong row. ]]--
+    local function build()
         local values, _, enum = listEntries(w)
         if not values then return end
-
-        local current = listIndex(w, readValue(w))
 
         for i = 1, table.getn(values) do
             local info = {}
             info.text = listLabel(w, i)
+
+            -- REQUIRED: Refresh matches button.value against selectedValue. With
+            -- no value nothing is ever checked and the label never updates.
             info.value = i
-            info.checked = (current == i)
+
             info.func = function()
                 local index = this.value
                 UIDropDownMenu_SetSelectedValue(drop, index)
-                UIDropDownMenu_SetText(listLabel(w, index), drop)
                 if enum then
                     OB.ApplyOption(w, values[index])
                 else
@@ -382,14 +400,14 @@ local function addDropDown(page, w)
             end
             UIDropDownMenu_AddButton(info)
         end
-    end)
+    end
 
+    UIDropDownMenu_Initialize(drop, build)
     UIDropDownMenu_SetWidth(w.width or 150, drop)
 
     drop.Update = function(self)
-        local index = listIndex(self.w, readValue(self.w))
-        UIDropDownMenu_SetSelectedValue(self, index)
-        UIDropDownMenu_SetText(listLabel(self.w, index), self)
+        UIDropDownMenu_Initialize(self, build)
+        UIDropDownMenu_SetSelectedValue(self, listIndex(self.w, readValue(self.w)))
     end
 
     return drop
@@ -486,34 +504,14 @@ local function addHeader(page, w)
     return holder
 end
 
---[[ The chosen face, at the chosen size, with the chosen outline, spelled out.
+--[[ There was a font preview row here, showing a sample in the chosen face. It
+     is gone: the HUD is already a sample, and the panel does not cover it.
 
-     A font is the one setting whose stored value tells you nothing about what it
-     looks like, and the panel covers the bars while it is open -- so without a
-     sample the loop is pick, close, squint, reopen. It renders through
-     OB.ApplyFont, the same call the bars use, which means it also inherits the
-     fallback to the client font and so shows a missing .ttf as plainly as the
-     bars would. ]]--
-local function addPreview(page, w)
-    local holder = CreateFrame("Frame", nil, page)
-    holder:SetWidth(1)
-    holder:SetHeight(1)
-
-    -- through OB.NewText, which is where the reason lives: this row is the one
-    -- that got it wrong and took the whole panel down with it
-    local text = OB.NewText(page, "OVERLAY", "GameFontNormal")
-    text:SetJustifyH("LEFT")
-    text:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
-    text:SetTextColor(1, 0.82, 0)
-
-    holder.label = text
-    holder.Update = function(self)
-        self.label:SetText(w.caption)
-        OB.ApplyFont(self.label, OB.profile.fontSize)
-    end
-
-    return holder
-end
+     Its wreckage is worth keeping though. It was the row that created a font
+     string with no font object, which is an error rather than a no-op on 1.12,
+     which aborted the panel build, which shipped a settings window with one
+     category and nothing in it. OB.NewText, OB.texts and the fail-soft panel all
+     exist because of this row. See constraint 22. ]]--
 
 -- ---------------------------------------------------------------------------
 -- rows
@@ -562,8 +560,6 @@ local function describeRow(opt, scope, moduleId)
         w.withAlpha = opt[4]
     elseif kind == "header" then
         w.kind = "header"
-    elseif kind == "preview" then
-        w.kind = "preview"
     else
         w.kind = "list"
         w.values = kind
@@ -582,7 +578,6 @@ local OFFSETS = {
     header = { 0, 0 },
     button = { 4, -2 },
     editbox = { 8, -4 },
-    preview = { 4, -6 },
 }
 
 local function place(page, widget, w, column)
@@ -706,8 +701,6 @@ local function constructRow(page, w, column)
         widget = addSwatch(page, w)
     elseif w.kind == "header" then
         widget = addHeader(page, w)
-    elseif w.kind == "preview" then
-        widget = addPreview(page, w)
     else
         widget = addDropDown(page, w)
     end
@@ -809,13 +802,14 @@ local generalLeft = {
 
 local generalRight = {
     { "Appearance", "__h_look", "header" },
-    { "Scale", "scale", "slider", 50, 200, 5, 0.01 },
+    -- the bounds come from OB.SCALE_MIN/MAX so the slider and the load-time
+    -- clamp cannot drift apart
+    { "Scale", "scale", "slider", OB.SCALE_MIN * 100, OB.SCALE_MAX * 100, 5, 0.01 },
     { "Bar Texture", "texture", OB.textures, 150 },
     { "Bar Border", "border", OB.borders, 150 },
     { "Font", "font", OB.fonts, 150 },
     { "Font Size", "fontSize", "slider", 6, 24, 1 },
     { "Font Outline", "fontOutline", "boolean" },
-    { "Aa Bb Cc 0123456789", "__preview_font", "preview" },
 }
 
 local slotGeometry = {
@@ -843,7 +837,7 @@ OB.optionIndex = { global = {}, slot = {}, modules = {} }
 
 -- decoration carries a caption and no value, so it has nothing to offer the
 -- prompt and would only clutter the generated help
-local decorative = { header = true, preview = true }
+local decorative = { header = true }
 
 local function indexRows(rows, scope, moduleId, target)
     for i = 1, table.getn(rows) do
@@ -1008,107 +1002,56 @@ local function addCategory(panel, name)
     return page
 end
 
--- the selector reads "Resource - Energy", so a slot's name never lies about
--- what is actually drawn in it
-local function slotCaption(slotId)
-    local base = OB.slotLabels[slotId] or slotId
-    local occupant = OB.bound[slotId]
-    if occupant then return base .. " - " .. occupant.name end
-    return base .. " - empty"
+--[[ The bar's name, and what is drawn in it when those differ.
+
+     They differ for exactly one bar: Extras, whose occupant depends on the class
+     and whose label already says so ("Combo Points"). Everywhere else the bar and
+     the module are the same thing under two names, so repeating the module name
+     would just be noise. ]]--
+local function barCaption(barId)
+    local label = OB.BarLabel(barId)
+    if OB.bound[barId] then return label end
+    return label .. " - empty"
 end
 
-local function currentAssignment()
-    local assigned
-    if OB.profile.assign[OB.class] then
-        assigned = OB.profile.assign[OB.class][OB.panel.slot]
-    end
-    if assigned == nil and OB.profile.assign["*"] then
-        assigned = OB.profile.assign["*"][OB.panel.slot]
-    end
-    return assigned or "auto"
-end
-
-local function occupantLabel(id)
-    if id == "auto" then
-        local auto = OB.AutoOccupant(OB.panel.slot)
-        if auto and OB.modules[auto] then
-            return "Automatic (" .. OB.modules[auto].name .. ")"
-        end
-        return "Automatic (none)"
-    end
-    if id == "none" then return "Empty" end
-
-    local m = OB.modules[id]
-    return m and m.name or id
-end
-
-local function buildSlotsPage(page)
-    -- the slot selector is a row like any other, so it flows with the page
-    local selector = CreateFrame("Frame", "EqOBSlotSelector", page,
+local function buildBarsPage(page)
+    -- the bar selector is a row like any other, so it flows with the page
+    local selector = CreateFrame("Frame", "EqOBBarSelector", page,
             "UIDropDownMenuTemplate")
-    labelFor(page, selector, "Slot")
+    labelFor(page, selector, "Bar")
 
-    UIDropDownMenu_Initialize(selector, function()
-        for i = 1, table.getn(OB.slotOrder) do
-            local slotId = OB.slotOrder[i]
+    -- rebuilt on every update: the captions carry "- empty", which changes as
+    -- modules are toggled, and re-initialising is required before selecting
+    -- anyway. See addDropDown for why.
+    local function buildBars()
+        local bars = OB.BarsForClass()
+        for i = 1, table.getn(bars) do
             local info = {}
-            info.text = slotCaption(slotId)
-            info.value = slotId
-            info.checked = (OB.panel.slot == slotId)
+            info.text = barCaption(bars[i])
+            info.value = bars[i]
             info.func = function()
-                OB.panel.slot = this.value
+                OB.panel.bar = this.value
                 OB.RefreshPanel()
             end
             UIDropDownMenu_AddButton(info)
         end
-    end)
+    end
+
+    UIDropDownMenu_Initialize(selector, buildBars)
     UIDropDownMenu_SetWidth(200, selector)
 
     selector.Update = function(self)
-        UIDropDownMenu_SetSelectedValue(self, OB.panel.slot)
-        UIDropDownMenu_SetText(slotCaption(OB.panel.slot), self)
+        UIDropDownMenu_Initialize(self, buildBars)
+        UIDropDownMenu_SetSelectedValue(self, OB.panel.bar)
     end
 
     place(page, selector, { kind = "list", key = "", scope = "global" }, 1)
     selector.alwaysShow = true
 
-    --[[ The occupant dropdown is the slot model's one visible control: which
-         module draws here. Its list is every module this class can run plus the
-         two sentinels, so a hunter really can put the range readout where a
-         rogue keeps combo points -- and the shipped hunter default writes
-         exactly the value this dropdown writes. ]]--
-    local drop = CreateFrame("Frame", "EqOBOccupant", page, "UIDropDownMenuTemplate")
-    labelFor(page, drop, "Occupant")
-
-    UIDropDownMenu_Initialize(drop, function()
-        local list = OB.ModulesForSlot(OB.panel.slot)
-        local assigned = currentAssignment()
-
-        for i = 1, table.getn(list) do
-            local id = list[i]
-            local info = {}
-            info.text = occupantLabel(id)
-            info.value = id
-            info.checked = (assigned == id)
-            info.func = function()
-                OB.AssignSlot(OB.panel.slot, this.value)
-                OB.BindSlots()
-                OB.Refresh(true)
-                OB.RefreshPanel()
-            end
-            UIDropDownMenu_AddButton(info)
-        end
-    end)
-    UIDropDownMenu_SetWidth(200, drop)
-
-    drop.Update = function(self)
-        local assigned = currentAssignment()
-        UIDropDownMenu_SetSelectedValue(self, assigned)
-        UIDropDownMenu_SetText(occupantLabel(assigned), self)
-    end
-
-    place(page, drop, { kind = "list", key = "", scope = "global" }, 1)
-    drop.alwaysShow = true
+    --[[ There was an "Occupant" dropdown here, choosing which module drew in the
+         selected slot. It is gone: a bar and its module are one thing now, and
+         the ordering that dropdown existed to express is done by dragging the
+         bars, which was always possible. ]]--
 
     for i = 1, table.getn(slotGeometry) do
         buildRow(page, describeRow(slotGeometry[i], "slot", nil), 1)
@@ -1117,12 +1060,15 @@ local function buildSlotsPage(page)
     --[[ Restack is offered rather than done automatically. Automatic reflow is
          the exact bug class the fixed anchor exists to prevent, and it would
          break the promise that two characters on one profile line up the moment
-         their occupancy differed. ]]--
-    addButton(page, "Restack Occupied Slots", 190, 1, function()
-        OB.RestackSlots()
+         their occupancy differed.
+
+         It matters more now than it did with six slots: eight bars and most
+         classes filling six leaves a gap where the ones they cannot use sit. ]]--
+    addButton(page, "Restack Occupied Bars", 190, 1, function()
+        OB.RestackBars()
         OB.Refresh(true)
         OB.RefreshPanel()
-        OB.Print("slots restacked -- this moves them for every character on the '"
+        OB.Print("bars restacked -- this moves them for every character on the '"
                 .. OB.profileName .. "' profile.")
     end)
 
@@ -1195,22 +1141,27 @@ local function buildProfilesPage(page)
     local drop = CreateFrame("Frame", "EqOBProfileDrop", page, "UIDropDownMenuTemplate")
     labelFor(page, drop, "Active profile")
 
-    UIDropDownMenu_Initialize(drop, function()
+    --[[ Rebuilt on every update rather than once, because the list changes: a
+         new or deleted profile has to appear or vanish. That also satisfies the
+         re-initialise-before-select rule -- see addDropDown for why every
+         dropdown here has to. ]]--
+    local function buildProfiles()
         local names = OB.ProfileNames()
         for i = 1, table.getn(names) do
             local info = {}
             info.text = names[i]
             info.value = names[i]
-            info.checked = (OB.profileName == names[i])
             info.func = function() OB.SetProfile(this.value) end
             UIDropDownMenu_AddButton(info)
         end
-    end)
+    end
+
+    UIDropDownMenu_Initialize(drop, buildProfiles)
     UIDropDownMenu_SetWidth(200, drop)
 
     drop.Update = function(self)
+        UIDropDownMenu_Initialize(self, buildProfiles)
         UIDropDownMenu_SetSelectedValue(self, OB.profileName)
-        UIDropDownMenu_SetText(OB.profileName, self)
     end
 
     place(page, drop, { kind = "list", key = "", scope = "global" }, 1)
@@ -1335,7 +1286,7 @@ function OB.CreateSettingsPanel()
     panel.divider:SetPoint("TOPLEFT", panel, CONTENT_X - 14, CONTENT_Y + 4)
 
     buildPage("General", buildGeneralPage, addCategory(panel, "General"))
-    buildPage("Slots", buildSlotsPage, addCategory(panel, "Slots"))
+    buildPage("Bars", buildBarsPage, addCategory(panel, "Bars"))
     buildPage("Modules", buildModulesPage, addCategory(panel, "Modules"))
     buildPage("Profiles", buildProfilesPage, addCategory(panel, "Profiles"))
 

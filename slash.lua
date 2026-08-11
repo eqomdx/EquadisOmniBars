@@ -13,9 +13,8 @@
     /eqob                          open the panel
     /eqob help                     every option in every scope
     /eqob <global option> [value]  e.g. scale 120, locked
-    /eqob slot <id> <key> [value]  e.g. slot resource h 20
+    /eqob bar <id> <key> [value]   e.g. bar resource h 20
     /eqob <module> <key> [value]   e.g. power ticker nofull
-    /eqob assign <slot> <module>
     /eqob profile use|new|copy|delete <name>
     /eqob restack | test | reset [all]
 ]]--
@@ -101,9 +100,7 @@ local function showHelp()
             .. " - open the settings panel")
     p("  " .. BLUE .. "/eqob test" .. WHITE .. " - start or stop the preview")
     p("  " .. BLUE .. "/eqob restack" .. WHITE
-            .. " - re-stack the occupied slots top to bottom")
-    p("  " .. BLUE .. "/eqob assign <slot> <module>" .. WHITE
-            .. " - put a module in a slot")
+            .. " - re-stack the occupied bars top to bottom")
     p("  " .. BLUE .. "/eqob profile use|new|copy|delete <name>" .. WHITE)
     p("  " .. BLUE .. "/eqob reset" .. WHITE .. " / " .. BLUE .. "reset all" .. WHITE
             .. " - this profile, or every profile")
@@ -119,19 +116,22 @@ local function showHelp()
         p("  " .. BLUE .. "/eqob " .. extra[i] .. WHITE .. " - " .. (command.help or ""))
     end
 
-    p(GREEN .. "Slots:" .. WHITE .. " " .. BLUE .. "/eqob slot <id> <key> <value>")
+    p(GREEN .. "Bars:" .. WHITE .. " " .. BLUE .. "/eqob bar <id> <key> <value>")
+
+    -- only the bars this class has: offering geometry for a rectangle that will
+    -- never be drawn is just a way to waste somebody's afternoon
+    local bars = OB.BarsForClass()
     local ids = {}
-    for i = 1, table.getn(OB.slotOrder) do
-        local id = OB.slotOrder[i]
-        local occupant = OB.bound[id]
-        if occupant then
-            table.insert(ids, id .. "=" .. occupant.id)
+    for i = 1, table.getn(bars) do
+        local id = bars[i]
+        if OB.bound[id] then
+            table.insert(ids, id)
         else
             table.insert(ids, id .. "=empty")
         end
     end
     p("  " .. GREY .. table.concat(ids, "  "))
-    listOptions(OB.optionIndex.slot, "slot <id> ")
+    listOptions(OB.optionIndex.slot, "bar <id> ")
 
     p(GREEN .. "General:" .. WHITE .. " " .. BLUE .. "/eqob <option> <value>")
     listOptions(OB.optionIndex.global, "")
@@ -151,73 +151,39 @@ end
 -- sub-commands
 -- ---------------------------------------------------------------------------
 
-local function cmdSlot(args)
-    local _, _, slotId, key, value = string.find(args, "^(%S+)%s+(%S+)%s*(.*)$")
+local function cmdBar(args)
+    local _, _, barId, key, value = string.find(args, "^(%S+)%s+(%S+)%s*(.*)$")
 
-    if not slotId then
-        OB.Print("usage: /eqob slot <id> <key> [value]")
+    if not barId then
+        OB.Print("usage: /eqob bar <id> <key> [value]")
         return
     end
 
-    if not OB.profile.slots[slotId] then
-        OB.Print("no slot named '" .. slotId .. "'. Try: "
-                .. table.concat(OB.slotOrder, ", "))
+    if not OB.profile.slots[barId] then
+        OB.Print("no bar named '" .. barId .. "'. Try: "
+                .. table.concat(OB.barOrder, ", "))
         return
     end
 
     local w = findOption(OB.optionIndex.slot, key)
     if not w then
-        OB.Print("no slot setting named '" .. key .. "'.")
+        OB.Print("no bar setting named '" .. key .. "'.")
         return
     end
 
-    --[[ Slot rows read through OB.panel.slot, which is also what the panel's
-         selector drives. Pointing it at the named slot is what lets one set of
+    --[[ Bar rows read through OB.panel.bar, which is also what the panel's
+         selector drives. Pointing it at the named bar is what lets one set of
          row descriptors serve both. ]]--
-    local previous = OB.panel.slot
-    OB.panel.slot = slotId
-    handleOption(w, slotId .. " " .. key, value or "")
-    OB.panel.slot = previous
+    local previous = OB.panel.bar
+    OB.panel.bar = barId
+    handleOption(w, barId .. " " .. key, value or "")
+    OB.panel.bar = previous
     OB.RefreshPanel()
 end
 
-local function cmdAssign(args)
-    local _, _, slotId, moduleId = string.find(args, "^(%S+)%s+(%S+)$")
-
-    if not slotId then
-        OB.Print("usage: /eqob assign <slot> <module|auto|none>")
-        return
-    end
-
-    if not OB.profile.slots[slotId] then
-        OB.Print("no slot named '" .. slotId .. "'. Try: "
-                .. table.concat(OB.slotOrder, ", "))
-        return
-    end
-
-    if moduleId ~= "auto" and moduleId ~= "none" and not OB.modules[moduleId] then
-        OB.Print("no module named '" .. moduleId .. "'. Try: "
-                .. table.concat(OB.ModulesForSlot(slotId), ", "))
-        return
-    end
-
-    if OB.modules[moduleId] and not OB.ClassAllows(OB.modules[moduleId]) then
-        OB.Print("'" .. moduleId .. "' is not available to a " .. OB.class .. ".")
-        return
-    end
-
-    OB.AssignSlot(slotId, moduleId)
-    OB.BindSlots()
-    OB.Refresh(true)
-    OB.RefreshPanel()
-
-    local occupant = OB.bound[slotId]
-    if occupant then
-        OB.Print(slotId .. ": " .. occupant.name)
-    else
-        OB.Print(slotId .. ": empty")
-    end
-end
+--[[ `/eqob assign <slot> <module>` lived here. It set which module drew in which
+     slot, and it went with the rest of the assignment layer -- a bar and its
+     module are one thing now, so there is nothing left to assign. ]]--
 
 local function cmdProfile(args)
     local _, _, action, name = string.find(args, "^(%S*)%s*(.*)$")
@@ -284,7 +250,7 @@ SlashCmdList["EQUADISOMNIBARS"] = function(msg)
     end
 
     if cmd == "restack" then
-        OB.RestackSlots()
+        OB.RestackBars()
         OB.Refresh(true)
         OB.RefreshPanel()
         OB.Print("slots restacked -- this moves them for every character on the '"
@@ -301,8 +267,7 @@ SlashCmdList["EQUADISOMNIBARS"] = function(msg)
         return
     end
 
-    if cmd == "slot" then cmdSlot(args) return end
-    if cmd == "assign" then cmdAssign(args) return end
+    if cmd == "bar" then cmdBar(args) return end
     if cmd == "profile" then cmdProfile(args) return end
 
     -- a registered command beats a module id, because a command word is the more

@@ -17,7 +17,7 @@ local _G = getfenv(0)
 EquadisOmniBars = {}
 local OB = EquadisOmniBars
 
-OB.version = "0.2.1"
+OB.version = "0.3.0"
 OB.addonName = "Equadis' OmniBars"
 
 --[[ The addon folder name is load-bearing: every media path below hardcodes it,
@@ -275,25 +275,60 @@ function OB.HasPlayerBuff(textures)
 end
 
 -- ---------------------------------------------------------------------------
--- slots
+-- bars
 --
--- A slot is a rectangle with a style and nothing else. It does not know whether
--- it holds a bar or five pips: the module that occupies it declares how it
--- renders and draws into the rect. That separation is what lets a hunter put a
--- range readout exactly where a rogue has combo points, with no special case
--- anywhere in the layout code.
+-- A bar is a rectangle with a style, and one module draws into it. The rectangle
+-- and the drawing stay separate tables -- render.lua and layout.lua are handed
+-- geometry and must never learn what is drawn in it -- but the pairing is fixed:
+-- one bar, one module, declared by the module and never reassigned.
+--
+-- An earlier version made that pairing a user setting, with an "occupant"
+-- dropdown per slot. It bought nothing: every bar can be dragged anywhere, so
+-- ordering was already the user's to choose, and the indirection only added a
+-- concept and a control to get wrong. What is left is a flat list of named bars.
+--
+-- The order here is the order they appear in the panel *and* the order they are
+-- stacked on screen by default, which is one less thing to reconcile.
 -- ---------------------------------------------------------------------------
 
-OB.slotOrder = { "points", "swingB", "swingA", "resource", "health", "aux" }
-
-OB.slotLabels = {
-    points   = "Points",
-    swingB   = "Swing B",
-    swingA   = "Swing A",
-    resource = "Resource",
-    health   = "Health",
-    aux      = "Auxiliary",
+OB.barOrder = {
+    "health", "resource", "mainhand", "offhand",
+    "ranged", "distance", "secondary", "extras",
 }
+
+OB.barLabels = {
+    health    = "Health",
+    resource  = "Resource",
+    mainhand  = "Main Hand",
+    offhand   = "Off Hand",
+    ranged    = "Ranged",
+    distance  = "Distance",
+    secondary = "Secondary Resource",
+    extras    = "Extras",
+}
+
+--[[ The one bar whose occupant depends on the class, and so the one whose name
+     does too. A rogue's is combo points; a warrior's will be stances.
+
+     Only combo points exists. The rest are named here rather than left blank
+     because the name is the cheap half and it says what the bar is for before
+     anything fills it. A class with no module naming `extras` simply has no
+     Extras bar -- see OB.BarsForClass. ]]--
+OB.extrasLabels = {
+    ROGUE = "Combo Points",
+    DRUID = "Combo Points",
+
+    -- reserved, not implemented:
+    -- WARRIOR = "Stances", PALADIN = "Auras", SHAMAN = "Totems",
+    -- HUNTER = "Aspects", PRIEST = "Forms",
+}
+
+function OB.BarLabel(barId)
+    if barId == "extras" then
+        return OB.extrasLabels[OB.class] or OB.barLabels.extras
+    end
+    return OB.barLabels[barId] or barId
+end
 
 -- ---------------------------------------------------------------------------
 -- power types
@@ -422,16 +457,21 @@ function OB.ModuleEnabled(id)
     return flag and true or false
 end
 
---[[ Which module a slot gets when its assignment says "auto": the highest
-     priority registered module that names this slot as its default and whose
-     class gate passes. A slot with no such module is simply empty. ]]--
-function OB.AutoOccupant(slotId)
+--[[ Which module draws in a bar: the one that names it and whose class gate
+     passes. A bar with no such module is simply empty.
+
+     `priority` breaks a tie between two modules claiming the same bar for the
+     same class. That should never happen -- Extras is the only bar more than one
+     module will ever name, and each of those names a different class -- so a tie
+     is a bug rather than a feature. It costs one comparison to fail loudly-ish
+     instead of arbitrarily. ]]--
+function OB.Occupant(barId)
     local best, bestPriority
 
     for i = 1, table.getn(OB.moduleOrder) do
         local id = OB.moduleOrder[i]
         local m = OB.modules[id]
-        if m.slot == slotId and OB.ModuleEnabled(id) then
+        if m.bar == barId and OB.ModuleEnabled(id) then
             if not best or m.priority > bestPriority then
                 best, bestPriority = id, m.priority
             end
@@ -441,17 +481,27 @@ function OB.AutoOccupant(slotId)
     return best
 end
 
---[[ Everything a slot may be set to at the prompt or in the panel: the two
-     sentinels plus every module this class can run. Modules are offered for any
-     slot, not just their default one -- that is the whole point of the model. ]]--
-function OB.ModulesForSlot(slotId)
-    local list = { "auto", "none" }
+--[[ The bars this class actually has, in panel order.
 
-    for i = 1, table.getn(OB.moduleOrder) do
-        local id = OB.moduleOrder[i]
-        if OB.ClassAllows(OB.modules[id]) then
-            table.insert(list, id)
+     A bar no module on this class can fill is left out of the list entirely
+     rather than shown empty: a warrior has no Extras and no Secondary Resource,
+     and offering rows for a rectangle that will never be drawn is just a way to
+     waste somebody's afternoon. Note this asks about the *class*, not about the
+     enable toggles -- a module you switched off still has its bar listed, or you
+     would have no way to switch it back on from the Bars page. ]]--
+function OB.BarsForClass()
+    local list = {}
+
+    for i = 1, table.getn(OB.barOrder) do
+        local barId = OB.barOrder[i]
+        local possible = false
+
+        for m = 1, table.getn(OB.moduleOrder) do
+            local mod = OB.modules[OB.moduleOrder[m]]
+            if mod.bar == barId and OB.ClassAllows(mod) then possible = true end
         end
+
+        if possible then table.insert(list, barId) end
     end
 
     return list
