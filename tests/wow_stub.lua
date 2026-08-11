@@ -561,9 +561,20 @@ function UseAction(slot, checkCursor, onSelf)
     Stub.lastAction = slot
 end
 
---[[ SuperWoW's UnitXP, which is injected by the client rather than by an addon
-     and so is simply absent on a plain install. Tests put it in and take it out
-     again to drive the range module down each of its backends. ]]--
+--[[ Client-mod APIs.
+
+     None of these come from an addon: they are injected into the Lua state by a
+     DLL, so on a plain install they are simply absent and there is no version or
+     flag to read. Tests put them in and take them out again to drive the
+     distance module down each of its backends.
+
+     Modelling them as *togglable* rather than always-present is the point. The
+     addon spent three versions believing UnitXP was on the development machine
+     because another addon referenced it, and every reading came from the
+     coarsest backend as a result. A stub where the good path is always available
+     would reproduce that mistake rather than catch it. ]]--
+
+-- SuperWoW: UnitXP("distanceBetween"), and the newer UnitPosition
 function Stub.SetUnitXP(present)
     if not present then
         UnitXP = nil
@@ -577,6 +588,130 @@ function Stub.SetUnitXP(present)
         end
         return 0
     end
+end
+
+--[[ World coordinates. The player sits at the origin and the target is placed
+     along one axis, so the module's own three-dimensional maths has to run to
+     get the distance back out -- a stub that returned the answer directly would
+     not exercise it. ]]--
+function Stub.SetUnitPosition(present)
+    if not present then
+        UnitPosition = nil
+        return
+    end
+
+    UnitPosition = function(unit)
+        if unit == "player" then return 0, 0, 0 end
+        if not Stub.player.hasTarget then return nil end
+        return Stub.player.targetDistance or 0, 0, 0
+    end
+end
+
+--[[ Nampower: the engine's own range answers.
+
+     Stub.spellRanges maps a spell name to { min, max }, so a test can give a
+     hunter a dead zone and a wand none. IsSpellInRange returns the engine's
+     boolean, computed from those same numbers, so the two can never disagree in
+     a way the real client would not. ]]--
+Stub.spellRanges = {}
+
+function Stub.SetNampower(present)
+    if not present then
+        GetSpellIdForName = nil
+        GetSpellRecField = nil
+        GetSpellRangeData = nil
+        IsSpellInRange = nil
+        return
+    end
+
+    local ids, names = {}, {}
+    local next = 1
+
+    GetSpellIdForName = function(name)
+        if not Stub.spellRanges[name] then return nil end
+        if not ids[name] then
+            ids[name] = next
+            names[next] = name
+            next = next + 1
+        end
+        return ids[name]
+    end
+
+    -- the range index is the spell id here; the indirection exists on the real
+    -- client and is modelled only so the addon has to make both calls
+    GetSpellRecField = function(id, field)
+        if field ~= "rangeIndex" then return nil end
+        return id
+    end
+
+    GetSpellRangeData = function(index)
+        local name = names[index]
+        if not name then return nil end
+        local r = Stub.spellRanges[name]
+        return r[1], r[2], 0, name
+    end
+
+    IsSpellInRange = function(id, unit)
+        local name = names[id]
+        if not name then return nil end
+        if not Stub.player.hasTarget then return -1 end
+
+        local r = Stub.spellRanges[name]
+        local d = Stub.player.targetDistance or 0
+        if d < r[1] then return 0 end
+        if d > r[2] then return 0 end
+        return 1
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- inventory
+-- ---------------------------------------------------------------------------
+
+--[[ What is worn, by slot number. Only the ranged slot (18) is populated, and
+     only as { itemId, subtype } -- the distance module reads nothing else, and a
+     fuller inventory model would be scenery. ]]--
+Stub.equipped = {}
+
+function GetInventoryItemLink(unit, slot)
+    local item = Stub.equipped[slot]
+    if not item then return nil end
+    return "|cffffffff|Hitem:" .. item[1] .. ":0:0:0|h[Test Item]|h|r"
+end
+
+function GetInventorySlotInfo(name)
+    if name == "RangedSlot" then return 18 end
+    return 0
+end
+
+--[[ GetItemInfo's sixth return is the subtype, which is how the distance module
+     tells a bow from a wand from a relic. The other returns are plausible
+     filler; nothing reads them. ]]--
+function GetItemInfo(item)
+    local id = tonumber(item)
+    if not id then
+        local _, _, found = string.find(tostring(item), "item:(%d+)")
+        id = tonumber(found)
+    end
+    if not id then return nil end
+
+    for slot, entry in pairs(Stub.equipped) do
+        if entry[1] == id then
+            return "Test Item", "|Hitem:" .. id .. "|h", 2, 60, "Weapon", entry[2],
+                    1, "Ranged", nil
+        end
+    end
+
+    return nil
+end
+
+-- put a weapon of the given subtype in the ranged slot; nil empties it
+function Stub.SetRanged(subtype)
+    if not subtype then
+        Stub.equipped[18] = nil
+        return
+    end
+    Stub.equipped[18] = { 12345, subtype }
 end
 
 function GetTime() return clock end

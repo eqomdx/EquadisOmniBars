@@ -96,8 +96,28 @@ local function boot(class, powerType, opts)
     Stub.interactRefuses = false
     Stub.actionRange = opts.actionRange
 
-    -- a client mod either injected UnitXP before Lua ran or it did not
+    --[[ A client mod either injected its API before Lua ran or it did not, so
+         each is off unless a test asks for it. Defaulting them *off* is
+         deliberate: the addon spent three versions assuming UnitXP was present
+         when it was not, and a harness where the good path is always available
+         would have hidden that rather than caught it. ]]--
     Stub.SetUnitXP(opts.unitXP)
+    Stub.SetUnitPosition(opts.unitPosition)
+    Stub.SetNampower(opts.nampower)
+
+    --[[ Ranged slot contents, as GetItemInfo would report the subtype. Bows and
+         guns fire Auto Shot, wands fire Shoot, and a relic fires nothing -- which
+         is what a paladin, shaman or druid has there. ]]--
+    --[[ Deliberately *not* the numbers the module assumes for each weapon type.
+         Auto Shot here is a Hawk Eye hunter's 9-41 rather than the built-in
+         8-35, so a test can tell which of the two sources actually answered --
+         identical numbers would let the engine path silently stop working. ]]--
+    Stub.spellRanges = opts.spellRanges or {
+        ["Auto Shot"] = { 9, 41 },
+        ["Shoot"] = { 0, 30 },
+        ["Throw"] = { 0, 30 },
+    }
+    Stub.SetRanged(opts.ranged)
 
     --[[ Every boot starts from an empty saved-variables table unless a test
          hands one in deliberately. Sharing one across tests looks convenient and
@@ -1188,36 +1208,79 @@ OB.SetBarTick(tickBar, 1, nil, false, 1, 1, 1, 1)
 check(not tickBar.ticks[1].shown, "no fraction hides the tick")
 
 -- ---------------------------------------------------------------------------
--- 21. the range readout picks a backend the client can actually run
+-- 21. the distance readout reads the weapon, then picks a backend
 -- ---------------------------------------------------------------------------
 
-context = "range backend: "
+context = "distance weapon: "
 
-OB = boot("HUNTER", 0)
+--[[ What is in the ranged slot decides whose range is being asked about. A bow
+     has a dead zone, a wand does not, and a relic is not a weapon at all. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true })
+local range = OB.modules.distance
+
+eq(range.weapon, "Bows", "the ranged slot is read")
+eq(range.spell, "Auto Shot", "and mapped to the auto-attack it fires")
+eq(range.minRange, 9, "with that spell's real minimum, from the engine")
+eq(range.maxRange, 41, "and its real maximum")
+
+--[[ Without Nampower there is nothing to ask, so the weapon *type* supplies the
+     range instead. A guess, but an informed one -- and the alternative is no
+     minimum at all, which would mean a hunter standing on top of a mob reading
+     as in range while being unable to shoot. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows" })
+range = OB.modules.distance
+eq(range.minRange, 8, "with no engine to ask, the weapon type supplies a minimum")
+eq(range.maxRange, 35, "and a maximum")
+
+OB = boot("MAGE", 0, { ranged = "Wands", nampower = true })
+range = OB.modules.distance
+eq(range.spell, "Shoot", "a wand fires Shoot")
+eq(range.minRange, 0, "and has no dead zone")
+
+--[[ Paladins, shamans and druids carry a relic there. No auto-attack exists, so
+     the configured fallback stands and the bar stays a plain distance readout
+     rather than nothing at all. ]]--
+OB = boot("PALADIN", 0, { ranged = "Librams", nampower = true })
+range = OB.modules.distance
+eq(range.weapon, "Librams", "a relic is still read")
+check(range.spell == nil, "but fires nothing")
+eq(range.maxRange, OB.profile.modules.distance.maxRange,
+        "so the configured fallback range stands")
+
+-- an empty ranged slot is the same case
+OB = boot("WARRIOR", 1, { nampower = true })
+check(OB.modules.distance.spell == nil, "an empty ranged slot has no auto-attack")
+
+context = "distance backend: "
+
+--[[ Probed best first, and every source is optional. Defaulting them off in the
+     harness is deliberate -- see the note in boot(). ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows" })
 eq(OB.modules.distance.backend.id, "bands",
-        "with no distance API the readout falls back to bands")
-eq(OB.modules.distance.frame.visible, 4, "and draws four segments")
+        "a plain client falls back to interaction bands")
 
-OB = boot("HUNTER", 0, { unitXP = true })
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true })
+eq(OB.modules.distance.backend.id, "spell",
+        "Nampower alone gives the engine's own range check")
+
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true })
 eq(OB.modules.distance.backend.id, "precise",
-        "a client that can measure gets the precise readout")
-eq(OB.modules.distance.frame.visible, 1, "which is one continuous bar")
+        "and a position API beats it, because it can measure")
 
--- the surplus segments are parked, not destroyed, so the shape can change back
-check(OB.modules.distance.frame.count == 4, "the frames the shape does not need still exist")
-check(not OB.modules.distance.frame.bars[4]:IsShown(), "they are simply hidden")
+-- UnitXP is the older distance source and still works where it exists
+OB = boot("HUNTER", 0, { ranged = "Bows", unitXP = true })
+eq(OB.modules.distance.backend.id, "precise", "UnitXP measures too")
 
 -- a forced backend that cannot run here falls back rather than drawing nothing
+OB = boot("HUNTER", 0, { ranged = "Bows" })
 OB.profile.modules.distance.backend = "precise"
-Stub.SetUnitXP(false)
 OB.modules.distance:Probe()
 eq(OB.modules.distance.backend.id, "bands", "a forced backend that cannot run falls back")
-eq(OB.modules.distance.frame.visible, 4, "and the shape follows it back")
 
 --[[ Forcing a backend that cannot run usually falls back to the one already in
      use, so a message keyed off a *change* of backend would say nothing in the
      one case where the user is waiting to be told something. ]]--
-OB = boot("HUNTER", 0)
+OB = boot("HUNTER", 0, { ranged = "Bows" })
 local chatBefore = table.getn(Stub.chat)
 OB.profile.modules.distance.backend = "precise"
 OB.modules.distance:Probe()
@@ -1258,91 +1321,147 @@ eq(OB.profile.modules.distance.actionSlot, 42, "a later press is not captured")
 eq(Stub.lastAction, 7, "but still fires")
 
 -- ---------------------------------------------------------------------------
--- 22. bands, including the answer that is not an answer
+-- 22. the four states, from every backend
+--
+-- One bar coloured by state, so the state *is* the reading. Every backend has to
+-- produce the same vocabulary, or a colour would mean different things depending
+-- on what the client happens to have loaded.
 -- ---------------------------------------------------------------------------
 
-context = "range bands: "
-OB = boot("HUNTER", 0, { hasTarget = true })
+context = "distance states: "
 
-local range = OB.modules.distance
-
-local function readRange(distance)
+local function readAt(m, distance)
     Stub.player.targetDistance = distance
-    range.nextPoll = 0
+    m.nextPoll = 0
     Stub.Tick(0.05, 2)
-    return range.band
+    return m.state
 end
 
-eq(readRange(5), 1, "inside duel range is the dead zone")
-eq(readRange(10.5), 2, "past duel but inside trade is the dead zone edge")
-eq(readRange(20), 3, "past trade but inside inspect is shootable")
-eq(readRange(40), 4, "past inspect is out of range")
+-- precise: a real distance against the weapon's real minimum and maximum
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true,
+                         hasTarget = true })
+range = OB.modules.distance
+eq(range.backend.id, "precise", "measuring")
+
+eq(readAt(range, 3), "tooclose", "inside the dead zone is too close")
+eq(readAt(range, 20), "inrange", "between the two is in range")
+eq(readAt(range, 60), "toofar", "past the maximum is too far")
+eq(range.yards, 60, "and the distance itself is reported")
+
+-- a wand has no dead zone, so point blank is simply in range
+OB = boot("MAGE", 0, { ranged = "Wands", nampower = true, unitPosition = true,
+                       hasTarget = true })
+eq(readAt(OB.modules.distance, 1), "inrange", "point blank with a wand is fine")
+
+--[[ The boolean backends cannot tell too-close from too-far by themselves --
+     both come back as the same "no" -- so they split it on a melee check.
+     Standing on top of a target you cannot shoot is the dead zone. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, hasTarget = true })
+range = OB.modules.distance
+eq(range.backend.id, "spell", "the engine's own boolean")
+
+eq(readAt(range, 3), "tooclose", "unable to shoot and in melee reads as too close")
+eq(readAt(range, 20), "inrange", "in range is in range")
+eq(readAt(range, 60), "toofar", "unable to shoot and far away reads as too far")
+check(range.yards == nil, "a boolean backend reports no distance")
+
+-- bands, the always-available fallback
+OB = boot("HUNTER", 0, { ranged = "Bows", hasTarget = true })
+range = OB.modules.distance
+eq(range.backend.id, "bands", "the coarse fallback")
+eq(readAt(range, 5), "tooclose", "duel range with a dead zone is too close")
+eq(readAt(range, 20), "inrange", "inspect range is shootable")
+eq(readAt(range, 40), "toofar", "beyond it is not")
 
 --[[ CheckInteractDistance answers nil for a unit you cannot interact with, which
      every hostile mob is. Reading that as an error rather than as "too far"
      would blank the readout on precisely the targets it exists for. ]]--
 Stub.interactRefuses = true
-eq(readRange(5), 4, "a unit that refuses interaction reads as far, not as an error")
+eq(readAt(range, 5), "toofar", "a unit that refuses interaction reads as far")
 Stub.interactRefuses = false
+
+-- no target is its own state, in every backend
+Stub.player.hasTarget = false
+range.nextPoll = 0
+Stub.Tick(0.05, 2)
+check(range.state == nil, "no target means no state at all")
+
+-- ---------------------------------------------------------------------------
+-- 23. drawing: one bar, coloured by state
+-- ---------------------------------------------------------------------------
+
+context = "distance drawing: "
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true,
+                         hasTarget = true })
+range = OB.modules.distance
+local rangeCfg = OB.profile.modules.distance
+local rangeBar = range.frame
+
+check(rangeBar.fill ~= nil, "the readout is a single bar")
+check(rangeBar.bars == nil, "with no segment children at all")
+
+-- each state paints the bar its own colour
+readAt(range, 3)
+near(rangeBar.fill.vertex[1], rangeCfg.tooCloseColor[1], 0.01, "too close has its colour")
+readAt(range, 20)
+near(rangeBar.fill.vertex[1], rangeCfg.inRangeColor[1], 0.01, "in range has its own")
+readAt(range, 60)
+near(rangeBar.fill.vertex[1], rangeCfg.tooFarColor[1], 0.01, "and too far another")
+
+-- closer reads as fuller, so the bar drains as the target walks away
+readAt(range, 0)
+near(rangeBar.fill.width, rangeBar:GetWidth(), 0.5, "adjacent fills the bar")
+readAt(range, 20.5)
+near(rangeBar.fill.width, rangeBar:GetWidth() * 0.5, 0.5,
+        "half the maximum range is half a bar")
+readAt(range, 80)
+check(not rangeBar.fill.shown, "past the maximum the bar is empty, not negative")
+
+-- the dead zone edge is a fixed point, so it is a tick rather than a hue change
+readAt(range, 20)
+check(rangeBar.ticks and rangeBar.ticks[1] and rangeBar.ticks[1].shown,
+        "the dead zone edge is marked")
+near(rangeBar.ticks[1].points[1][4], rangeBar:GetWidth() * (1 - 9 / 41), 0.5,
+        "at the point the fill crosses it")
+
+--[[ No target at zero opacity takes the whole bar away, background included,
+     rather than leaving an empty trough -- which is the thing that reads as a
+     broken bar rather than an absent one. ]]--
+eq(rangeCfg.noTargetColor[4], 0, "the no-target colour ships fully transparent")
 
 Stub.player.hasTarget = false
 range.nextPoll = 0
 Stub.Tick(0.05, 2)
-check(range.band == nil, "no target means no reading at all")
+check(not rangeBar:IsShown(), "so no target hides the bar outright")
 
---[[ The preview has to walk every band the live readout can produce, including
-     the ~1.2 yard sliver between duel and trade range. A sweep coarse enough to
-     step over it would leave a user convinced that band is broken. ]]--
+--[[ Give it any visible opacity and it becomes a drawn placeholder instead,
+     which is what makes the colour a setting worth having rather than an
+     elaborate way of spelling "hidden". ]]--
+rangeCfg.noTargetColor = { 0.1, 0.1, 0.1, 0.5 }
+range.nextPoll = 0
+OB.SetDirty(range)
+Stub.Tick(0.05, 2)
+check(rangeBar:IsShown(), "a visible no-target colour draws a placeholder instead")
+near(rangeBar.fill.vertex[1], 0.1, 0.01, "in that colour")
+
+rangeCfg.noTargetColor = { 0, 0, 0, 0 }
+
+--[[ The preview has to walk every state the live readout can produce, or someone
+     checking their colours would never see two of the four. ]]--
+Stub.player.hasTarget = true
 OB.SetTestMode(true)
 
-local bandsSeen = {}
+local statesSeen = {}
 for i = 1, 400 do
     Stub.Tick(0.05, 1)
-    if range.band then bandsSeen[range.band] = true end
+    if range.state then statesSeen[range.state] = true end
 end
 
 OB.SetTestMode(false)
 
-local bandsCount = 0
-for _ in pairs(bandsSeen) do bandsCount = bandsCount + 1 end
-eq(bandsCount, 4, "the preview walks every band, narrow ones included")
-
--- ---------------------------------------------------------------------------
--- 23. the precise readout
--- ---------------------------------------------------------------------------
-
-context = "range precise: "
-OB = boot("HUNTER", 0, { unitXP = true, hasTarget = true })
-
-range = OB.modules.distance
-local rangeCfg = OB.profile.modules.distance
-rangeCfg.maxRange = 40
-rangeCfg.deadZone = 8
-
-local rangeBar = range.frame.bars[1]
-
-local function readPrecise(distance)
-    Stub.player.targetDistance = distance
-    range.nextPoll = 0
-    Stub.Tick(0.05, 2)
-    return range.band
-end
-
-eq(readPrecise(0), 1, "point blank is inside the dead zone")
-eq(range.yards, 0, "and the distance is reported, not just the band")
-near(rangeBar.fill.width, rangeBar:GetWidth(), 0.5, "adjacent fills the bar")
-
-eq(readPrecise(20), 3, "past the dead zone and inside the maximum is shootable")
-near(rangeBar.fill.width, rangeBar:GetWidth() * 0.5, 0.5,
-        "half the maximum range is half a bar")
-
-eq(readPrecise(80), 4, "past the maximum is out of range")
-check(not rangeBar.fill.shown, "and the bar is empty rather than negative")
-
-check(rangeBar.ticks and rangeBar.ticks[1] and rangeBar.ticks[1].shown,
-        "the dead zone edge is marked")
-near(rangeBar.ticks[1].points[1][4], rangeBar:GetWidth() * (1 - 8 / 40), 0.5,
-        "at the point the fill crosses it")
+local stateCount = 0
+for _ in pairs(statesSeen) do stateCount = stateCount + 1 end
+eq(stateCount, 3, "the preview walks every state a target can be in")
 
 -- ---------------------------------------------------------------------------
 -- 24. the ranged swing timer
@@ -1567,7 +1686,7 @@ OB = boot("ROGUE", 3, { savedVariables = {
     } },
 } })
 
-eq(OB.profile.schema, 5, "an old profile is migrated forward")
+eq(OB.profile.schema, 6, "an old profile is migrated forward")
 
 --[[ `hide` became `show`, inverted. A schema-2 profile carries no `show` at all,
      so the default supplies one and the migration has to overwrite it from the

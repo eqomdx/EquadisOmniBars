@@ -53,7 +53,7 @@ end
      automatically for a rogue would move a hunter's bars. Restack Occupied Bars
      does it on demand -- see constraint 15. ]]--
 OB.defaults = {
-    schema = 5,
+    schema = 6,
 
     -- visibility
     show = true,
@@ -286,6 +286,33 @@ OB.profileMigrations = {
          the saved value is. ]]--
     { 5, function(p)
         if p.slots and p.slots.distance then p.slots.distance.show = true end
+    end },
+
+    --[[ The distance readout became one bar coloured by state.
+
+         It used to draw four segments with exactly one lit, and its colours were
+         named after the bands rather than after what they mean: `inColor`,
+         `nearColor`, `outColor`. The new names say the state -- in range, too
+         close, too far -- and there is a fourth for having no target at all.
+
+         The three carry across because a colour somebody picked is worth
+         keeping even though the thing it paints has changed shape. `dim`, which
+         faded the unlit segments, has nothing left to fade.
+
+         maxRange and deadZone survive but demote: they used to be *the* range
+         and are now only the fallback for a slot holding a relic, or a client
+         with no Nampower to ask. A saved 35/8 was the shipped default rather
+         than a considered choice, so it is left alone -- the weapon type now
+         answers ahead of it either way. ]]--
+    { 6, function(p)
+        local d = p.modules and p.modules.distance
+        if not d then return end
+
+        if d.inColor then d.inRangeColor = d.inColor end
+        if d.nearColor then d.tooCloseColor = d.nearColor end
+        if d.outColor then d.tooFarColor = d.outColor end
+
+        d.inColor, d.nearColor, d.outColor, d.dim = nil, nil, nil, nil
     end },
 }
 

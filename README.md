@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.3.2 — in development.**
+> **Version 0.4.0 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -34,7 +34,7 @@ chat, not a hard block.
 |---|---|
 | Core framework — config, profiles, media, options generator, module registry | **done** |
 | Combat HUD — resource, combo points, swing timers, health | **done** |
-| Range readout, ranged swing timer, druid secondary mana | **done** |
+| Distance readout, ranged swing timer, druid secondary mana | **done** |
 | Combat log parser | next |
 | Damage meter | planned |
 | Threat meter | planned |
@@ -112,14 +112,30 @@ overrides the swatch rather than replacing it. A **Color By Remaining Health**
 checkbox marks where a continuous green-to-red gradient will go; it says outright
 that it does nothing yet.
 
-**Distance** — how far away your target is, drawn by whichever of three backends
-your client can actually support. With SuperWoW's `UnitXP` it is a real distance:
-a continuous bar with the dead zone marked and the yardage on it. Without one it
-falls back to four bands from `CheckInteractDistance`, exactly one lit — a
-position readout rather than a fill, which is what keeps it legible at 8 pixels
-tall. In between, it can watch one action bar slot and use the game's own range
-check for that ability, which for a hunter's Auto Shot beats every heuristic.
-Press **Capture Next Action** and then the button you want it to follow.
+**Distance** — can you hit your target from here. One bar, colored by state, and
+all four colors are yours to set:
+
+| State | Default |
+|---|---|
+| In range | green |
+| Too close — inside a bow's dead zone | orange |
+| Too far | red |
+| No target | fully transparent, which hides the bar |
+
+The question is about **your equipped ranged weapon**, not some generic distance.
+It reads your ranged slot, works out whether that is a bow, a gun, a crossbow, a
+wand or a thrown weapon, and looks up the range of the auto-attack it fires — so
+a wand has no dead zone and a hunter's bow does.
+
+How precisely it can answer depends on your client. With **Nampower** it uses the
+game's own range check, including the real minimum range. With **SuperWoW** it
+also gets a true distance, so the bar drains as your target walks away and shows
+the yardage. With neither, it falls back to the game's coarse interaction
+distances, or to one action bar slot you nominate — press **Capture Next Action**
+and then the button you want it to follow.
+
+Classes with a relic in the ranged slot have no ranged attack at all, so the bar
+becomes a plain distance readout using the fallback range you set.
 
 **Druid Mana** — how much mana you still have in bear or cat form. Vanilla stops
 reporting it the moment you shift, so it is simulated from the shift onwards:

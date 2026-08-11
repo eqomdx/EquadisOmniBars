@@ -456,12 +456,17 @@ end
      the same total width -- otherwise each point's border stacks on its
      neighbour's, which reads as a double-thick line between them.
 
-     `shown` lays out fewer than were built and hides the rest, which is how one
-     frame serves a module whose shape depends on something only known at
-     runtime: the range readout is four bands on one client and a single
-     continuous bar on another. Growing and shrinking the frame set instead would
-     mean creating and destroying frames mid-session, which 1.12 does not really
-     allow -- so the maximum is built once and the surplus is parked. ]]--
+     `shown` lays out fewer than were built and hides the rest, so one frame set
+     can serve a shape not known until runtime -- 1.12 does not really allow
+     creating and destroying frames mid-session, so the maximum is built once and
+     the surplus is parked.
+
+     Nothing passes it today. The distance readout did, back when it drew four
+     bands on one client and a single continuous bar on another; it draws one bar
+     coloured by state on every client now, so combo points -- always five -- is
+     the only caller left. Kept because the cost is one `or` and the alternative
+     is discovering the constraint again the next time a module wants a count it
+     cannot know at load. ]]--
 function OB.StyleSegments(group, slot, shown)
     local count = shown or group.count
     if count < 1 then count = 1 end

@@ -1,124 +1,254 @@
---[[ Equadis' OmniBars :: range
+--[[ Equadis' OmniBars :: distance
 
-  How far away the target is, drawn by whichever of three backends this client
-  can actually support.
+  Can I hit my target from here, and how far away is it.
 
-  Vanilla exposes no distance API. Client mods add one, and where they are
-  present the readout is a real number of yards; where they are not, the best
-  available answer is which of four coarse bands the target sits in. Rather than
-  shipping the worst of those everywhere, the backend is probed and the module
-  changes shape to match what it can measure:
+  One bar, coloured by state. Four states, each with its own colour:
 
-    precise   UnitXP("distanceBetween", ...) from SuperWoW -- one continuous bar
-    action    IsActionInRange(slot) -- one block, lit or not, at true spell range
-    bands     CheckInteractDistance -- four segments, exactly one lit
+    in range     the equipped ranged weapon can reach the target
+    too close    inside its minimum range -- the hunter dead zone
+    too far      past its maximum
+    no target    nothing selected
 
-  Every backend reports the same thing, a band from 1 to 4, and precise reports a
-  distance alongside it. That single shared reading is what keeps the colouring,
-  the class semantics and the panel identical across all three: only the number
-  of rectangles differs.
+  The question is deliberately about the *equipped weapon* rather than some
+  generic interaction distance. A bow, a gun, a wand and a thrown axe do not
+  share a range, and vanilla's CheckInteractDistance knows about none of them --
+  it answers "could I trade with this person", which is a different question that
+  merely happens to be roughly the right size.
 
-    1  inside the dead zone     2  at its edge
-    3  shootable                4  out of range
+  So: read the ranged slot, work out what kind of weapon it holds, and look up
+  the range of the auto-attack that weapon uses. What can answer that depends on
+  which client mods are loaded, so it is probed best-first:
 
-  Bands 1 and 2 collapse into one for a backend that can measure, because an
-  exact distance makes the distinction between "too close" and "only just too
-  close" a thing you can read off the bar.
+    precise   a true distance (SuperWoW's UnitPosition, or UnitXP) plus the real
+              min and max from Nampower -- every state, and a yardage readout
+    spell     Nampower's IsSpellInRange -- the engine's own answer, but boolean
+    action    IsActionInRange on a watched action slot -- likewise boolean
+    bands     CheckInteractDistance -- always available, always coarse
+
+  The boolean backends cannot tell "too close" from "too far" by themselves,
+  because both come back as the same "no". They split it with a melee check:
+  unable to shoot *and* within melee reach means you are standing on top of the
+  target, which is the dead zone.
+
+  One warning for whoever reads this next. **Do not assume a client mod is
+  present because another addon references it.** Phase 2 recorded UnitXP as
+  "confirmed present on this install" on the strength of SuperCleveRoidMacros
+  calling it; it is not in dlls.txt and never was, so the precise backend never
+  ran once and every reading came from `bands` for three versions. Nampower and
+  SuperWoW *are* loaded, which is why they are what this file reaches for.
 ]]--
 
 local OB = EquadisOmniBars
+
+-- ---------------------------------------------------------------------------
+-- what is in the ranged slot
+-- ---------------------------------------------------------------------------
+
+local RANGED_SLOT = 18
+
+--[[ Weapon subtype -> the auto-attack it fires, keyed by GetItemInfo's sixth
+     return. The strings are plural and English; a localised client needs a
+     translation here, which is the same debt the druid mana scrape carries and
+     which Phase 3's parser work should pay off for both.
+
+     Paladins, shamans and druids carry a relic in this slot rather than a
+     weapon, so they match nothing here and have no ranged attack at all. That is
+     not an error: the bar falls back to a plain distance readout for them, which
+     is still worth having. ]]--
+local weaponSpell = {
+    ["Bows"] = "Auto Shot",
+    ["Guns"] = "Auto Shot",
+    ["Crossbows"] = "Auto Shot",
+    ["Thrown"] = "Throw",
+    ["Wands"] = "Shoot",
+}
+
+--[[ Ranges to assume per weapon type when nothing can be asked for the real
+     ones: { minimum, maximum }.
+
+     These are the classic vanilla numbers and they are **assumptions**. Nampower
+     supersedes every one of them with the client's own DBC values, so they only
+     matter on an install without it -- but they matter a lot there, because
+     without a minimum the dead zone cannot exist and a hunter standing on top of
+     a mob would read as in range while being unable to shoot.
+
+     Knowing the *type* is what makes even a guess worth having: a bow has a dead
+     zone and a wand does not, and that much is certain from the slot alone. If
+     Turtle has retuned any of this, here is the one place to correct it. ]]--
+local weaponRange = {
+    ["Bows"] = { 8, 35 },
+    ["Guns"] = { 8, 35 },
+    ["Crossbows"] = { 8, 35 },
+    ["Thrown"] = { 0, 30 },
+    ["Wands"] = { 0, 30 },
+}
+
+-- ---------------------------------------------------------------------------
+-- optional client mods
+--
+-- Every one of these is probed rather than assumed, and every call is pcall'd:
+-- they are injected by a DLL, so there is no version to read and a missing one
+-- is a call into nothing.
+-- ---------------------------------------------------------------------------
+
+--[[ A true distance in yards, or nil.
+
+     SuperWoW's UnitPosition gives world coordinates, so this is honest
+     three-dimensional Pythagoras rather than an approximation. UnitXP answers
+     directly where it exists. ]]--
+function OB.UnitDistance(unit)
+    if type(UnitPosition) == "function" then
+        local ok, x1, y1, z1 = pcall(UnitPosition, "player")
+        if ok and x1 then
+            local ok2, x2, y2, z2 = pcall(UnitPosition, unit)
+            if ok2 and x2 then
+                local dx, dy, dz = x2 - x1, y2 - y1, z2 - z1
+                return math.sqrt((dx * dx) + (dy * dy) + (dz * dz))
+            end
+        end
+    end
+
+    if type(UnitXP) == "function" then
+        local ok, yards = pcall(UnitXP, "distanceBetween", "player", unit)
+        if ok and type(yards) == "number" then return yards end
+    end
+
+    return nil
+end
+
+--[[ A spell's real minimum and maximum range, from Nampower's SpellRange.dbc
+     lookup, or nil.
+
+     The minimum is the whole point of going here. Every other source on this
+     client throws it away -- SuperCleveRoidMacros' own GetSpellRange returns the
+     maximum and discards the minimum -- which is exactly why nothing else can
+     draw a dead zone.
+
+     The values are raw DBC, taken before the target's combat reach is added, so
+     they disagree with the engine's own boolean check by a yard or two against a
+     large target. Good enough to draw with; the boolean is the authority. ]]--
+function OB.SpellRange(name)
+    if type(GetSpellIdForName) ~= "function" then return nil end
+    if type(GetSpellRecField) ~= "function" then return nil end
+    if type(GetSpellRangeData) ~= "function" then return nil end
+
+    local ok, id = pcall(GetSpellIdForName, name)
+    if not ok or not id then return nil end
+
+    local okIndex, index = pcall(GetSpellRecField, id, "rangeIndex")
+    if not okIndex or not index then return nil end
+
+    local okRange, minRange, maxRange = pcall(GetSpellRangeData, index)
+    if not okRange or type(maxRange) ~= "number" or maxRange <= 0 then return nil end
+
+    return minRange or 0, maxRange, id
+end
 
 -- ---------------------------------------------------------------------------
 -- backends
 -- ---------------------------------------------------------------------------
 
 OB.rangeBackends = {}
+OB.rangeOrder = { "precise", "spell", "action", "bands" }
 
--- probed in this order, best first
-OB.rangeOrder = { "precise", "action", "bands" }
+--[[ Standing inside melee reach while unable to shoot means too close rather
+     than too far. The boolean backends have no other way to tell them apart.
 
---[[ SuperWoW's UnitXP. Availability is probed exactly the way
-     SuperCleveRoidMacros probes it (Init.lua:275) -- a pcall of a query that
-     does nothing -- because the function is injected by the client rather than
-     declared by an addon, so there is no version or flag to read. ]]--
+     Only when the weapon has a minimum range at all: a wand has none, so being
+     unable to shoot with one always means too far. ]]--
+local function closeOrFar(m)
+    if (m.minRange or 0) > 0 and CheckInteractDistance("target", 3) then
+        return "tooclose"
+    end
+    return "toofar"
+end
+
 OB.rangeBackends.precise = {
     id = "precise",
-    name = "Precise",
-    segments = 1,
+    name = "Precise Distance",
 
-    Available = function(cfg)
-        if type(UnitXP) ~= "function" then return false end
-        return pcall(UnitXP, "nop", "nop") and true or false
-    end,
+    Available = function(m) return OB.UnitDistance("player") ~= nil end,
 
-    Read = function(m, unit)
-        local cfg = m:Config()
-        local ok, yards = pcall(UnitXP, "distanceBetween", "player", unit)
-        if not ok or type(yards) ~= "number" then return nil, nil end
-        return m:BandFor(yards), yards
+    Read = function(m)
+        local yards = OB.UnitDistance("target")
+        if not yards then return nil, nil end
+
+        if (m.minRange or 0) > 0 and yards < m.minRange then
+            return "tooclose", yards
+        end
+        if m.maxRange and yards > m.maxRange then return "toofar", yards end
+        return "inrange", yards
     end,
 }
 
---[[ One action's true spell range, straight from the game. For a hunter's Auto
-     Shot this beats every heuristic in this file, because it is the same check
-     the client makes before refusing the shot -- talents, buffs and the weapon
-     all already counted.
+--[[ The engine's own answer, via Nampower. It accounts for the target's combat
+     reach and the weapon's minimum range in one call, which no arithmetic here
+     would get exactly right. ]]--
+OB.rangeBackends.spell = {
+    id = "spell",
+    name = "Spell Range",
 
-     It costs a slot number, which is why it is not the automatic choice: an
-     unset slot makes the backend unavailable rather than wrong. ]]--
-OB.rangeBackends.action = {
-    id = "action",
-    name = "Action",
-    segments = 1,
-
-    Available = function(cfg)
-        if type(IsActionInRange) ~= "function" then return false end
-        return (cfg and cfg.actionSlot and cfg.actionSlot > 0) and true or false
+    Available = function(m)
+        return type(IsSpellInRange) == "function" and m.spellId ~= nil
     end,
 
-    Read = function(m, unit)
+    Read = function(m)
+        local ok, result = pcall(IsSpellInRange, m.spellId, "target")
+        if not ok or result == nil or result == -1 then return nil, nil end
+        if result == 1 then return "inrange", nil end
+        return closeOrFar(m), nil
+    end,
+}
+
+--[[ One watched action's range. Weaker than the spell check only because it
+     needs a slot number, and stronger than bands because 1.12's IsActionInRange
+     honours a minimum range -- pfUI's hunter bar swaps pages on exactly that. ]]--
+OB.rangeBackends.action = {
+    id = "action",
+    name = "Action Range",
+
+    Available = function(m)
+        if type(IsActionInRange) ~= "function" then return false end
+        local slot = m:Config().actionSlot
+        return (slot and slot > 0) and true or false
+    end,
+
+    Read = function(m)
         local result = IsActionInRange(m:Config().actionSlot)
 
         -- nil means the slot holds nothing that is range checked, which is a
         -- configuration problem rather than a reading. Say nothing.
         if result == nil then return nil, nil end
-        if result == 1 then return 3, nil end
-        return 4, nil
+        if result == 1 then return "inrange", nil end
+        return closeOrFar(m), nil
     end,
 }
 
---[[ Always available, because CheckInteractDistance ships with the client.
+--[[ Always available, because CheckInteractDistance ships with the client, and
+     always coarse -- it knows about trading and duelling, not about your bow.
 
-     Four bands from three tests, each narrowing the one before:
-
-       (u, 3) duel      ~9.9yd    inside the dead zone
-       (u, 2) trade    ~11.1yd    its edge
-       (u, 1) inspect    ~28yd    shootable
-       none                       out of range
-
-     A nil return means the unit is not a valid interaction target -- a hostile
-     mob is exactly that -- and it must read as "too far for this test", never as
-     an error. Treating nil as a failure would make the whole readout blank on
-     precisely the targets it exists for. ]]--
+     A nil return means the unit is not a valid interaction target, which every
+     hostile mob is, and it must read as "too far for this test" rather than as
+     an error. Treating nil as a failure would blank the readout on precisely the
+     targets it exists for. ]]--
 OB.rangeBackends.bands = {
     id = "bands",
     name = "Bands",
-    segments = 4,
 
-    --[[ The yardages those three indices are believed to correspond to. The live
-         path never needs a number -- it asks the client -- so these exist only to
-         drive the preview, and they are the one place to correct if Turtle turns
-         out to have retuned them. If indices 2 and 3 stop being distinguishable
-         the band count drops to three and this list is what says so. ]]--
+    -- what those indices are believed to be worth in yards. Used only to walk
+    -- the preview through every state; the live path never needs a number.
     edges = { 9.9, 11.11, 28 },
 
-    Available = function(cfg) return true end,
+    Available = function(m) return true end,
 
-    Read = function(m, unit)
-        if CheckInteractDistance(unit, 3) then return 1, nil end
-        if CheckInteractDistance(unit, 2) then return 2, nil end
-        if CheckInteractDistance(unit, 1) then return 3, nil end
-        return 4, nil
+    Read = function(m)
+        if CheckInteractDistance("target", 3) then
+            if (m.minRange or 0) > 0 then return "tooclose", nil end
+            return "inrange", nil
+        end
+
+        if CheckInteractDistance("target", 1) then return "inrange", nil end
+        return "toofar", nil
     end,
 }
 
@@ -127,67 +257,73 @@ OB.rangeBackends.bands = {
 -- ---------------------------------------------------------------------------
 
 --[[ A distance does not change fast enough to be worth reading every frame, and
-     the precise backend crosses into the client mod to answer. Polling on a
+     three of the four backends cross into a client mod to answer. Polling on a
      fixed interval keeps a tickly module cheap; a target change resets the timer
-     so the first reading on a new target is immediate rather than up to a
-     tenth of a second stale. ]]--
+     so the first reading on a new target is immediate. ]]--
 local POLL = 0.1
 
 local M = OB.RegisterModule({
-    --[[ "Distance", not "Range", because the bar next to it is the ranged swing
-         timer and the two were being confused constantly. This one answers "how
-         far away is my target"; that one answers "when does my next shot land". ]]--
     id = "distance",
     name = "Distance",
     bar = "distance",
-    renders = "segments",
-    segments = 4,       -- the most any backend needs; the surplus is parked
+    renders = "bar",
     tickly = true,
 
     defaults = {
         backend = "auto",
-        maxRange = 35,
-        deadZone = 8,
-        showText = true,
 
+        --[[ Used only when nothing can supply the weapon's real range: a class
+             with a relic in the ranged slot, or a client without Nampower. ]]--
+        maxRange = 30,
+        deadZone = 0,
+
+        showText = true,
         actionSlot = 0,
         capture = false,
 
-        inColor = { 0.25, 0.80, 0.35, 1 },
-        nearColor = { 0.95, 0.75, 0.20, 1 },
-        outColor = { 0.75, 0.20, 0.20, 1 },
+        inRangeColor = { 0.20, 0.80, 0.25, 1 },
+        tooCloseColor = { 0.95, 0.55, 0.10, 1 },
+        tooFarColor = { 0.80, 0.20, 0.20, 1 },
+
+        --[[ Fully transparent, which hides the bar outright rather than leaving
+             an empty trough. Give it any visible opacity and it becomes a drawn
+             placeholder instead -- see OnDraw. ]]--
+        noTargetColor = { 0, 0, 0, 0 },
+
         tickColor = { 1, 1, 1, 0.7 },
-        dim = 0.25,
     },
 
     options = {
         { "Backend", "backend", OB.Enum(
-                { "auto", "precise", "action", "bands" },
-                { "Automatic", "Precise (UnitXP)", "Action Range", "Bands" }) },
-        { "Maximum Range", "maxRange", "slider", 5, 100, 1 },
-        { "Dead Zone", "deadZone", "slider", 0, 20, 1 },
+                { "auto", "precise", "spell", "action", "bands" },
+                { "Automatic", "Precise Distance", "Spell Range",
+                  "Action Range", "Bands" }) },
+        { "In Range Color", "inRangeColor", "color", true },
+        { "Too Close Color", "tooCloseColor", "color", true },
+        { "Too Far Color", "tooFarColor", "color", true },
+        { "No Target Color", "noTargetColor", "color", true },
+        { "Marker Color", "tickColor", "color", true },
         { "Show Yards", "showText", "boolean" },
+        { "Fallback Maximum Range", "maxRange", "slider", 5, 100, 1 },
+        { "Fallback Dead Zone", "deadZone", "slider", 0, 20, 1 },
         { "Watched Action Slot", "actionSlot", "slider", 0, 120, 1 },
         { "Capture Next Action", "capture", "boolean" },
-        { "In Range Color", "inColor", "color", true },
-        { "Too Close Color", "nearColor", "color", true },
-        { "Out Of Range Color", "outColor", "color", true },
-        { "Marker Color", "tickColor", "color", true },
-        { "Inactive Opacity", "dim", "slider", 0, 100, 5, 0.01 },
     },
 
-    --[[ UnitXP is deliberately absent. It is *expected* to be missing on a plain
-         client -- that is the whole reason the backend is probed and has two
-         fallbacks -- so listing it would make every install without SuperWoW
-         report a failure for working exactly as designed. ]]--
-    requires = { "CheckInteractDistance", "IsActionInRange", "UnitExists" },
+    --[[ Nothing from a client mod is listed. Every one is expected to be missing
+         on some install -- that is the entire reason there are four backends --
+         so requiring one would make a working addon report a failure. ]]--
+    requires = { "CheckInteractDistance", "IsActionInRange", "UnitExists",
+                 "GetInventoryItemLink", "GetItemInfo" },
 
-    events = { "PLAYER_ENTERING_WORLD", "PLAYER_TARGET_CHANGED" },
+    events = {
+        "PLAYER_ENTERING_WORLD", "PLAYER_TARGET_CHANGED",
+        "UNIT_INVENTORY_CHANGED",
+    },
 })
 
---[[ The always-available backend, until the probe runs. The module's shape is
-     read during styling and drawing, both of which can be reached before any
-     event has fired, so this field is never nil. ]]--
+-- the always-available backend, until the probe runs. Styling and drawing can
+-- both be reached before any event has fired, so this is never nil.
 M.backend = OB.rangeBackends.bands
 
 function M:Config()
@@ -195,27 +331,68 @@ function M:Config()
 end
 
 -- ---------------------------------------------------------------------------
+-- the weapon
+-- ---------------------------------------------------------------------------
+
+--[[ Work out what is in the ranged slot and what its auto-attack can reach.
+
+     Everything downstream keys off this: the backend probe needs `spellId`, and
+     three of the four readings need `minRange`. Re-run whenever the inventory
+     changes, which is the only thing that can alter the answer. ]]--
+function M:ScanWeapon()
+    local cfg = self:Config()
+
+    self.weapon, self.spell, self.spellId = nil, nil, nil
+    self.minRange, self.maxRange = cfg.deadZone, cfg.maxRange
+
+    local link = GetInventoryItemLink("player", RANGED_SLOT)
+    if not link then return end
+
+    local _, _, itemId = string.find(link, "item:(%d+)")
+    if not itemId then return end
+
+    -- GetItemInfo answers nil for an item the client has not cached yet, which
+    -- is why that is not treated as "no weapon"
+    local ok, _, _, _, _, _, subtype = pcall(GetItemInfo, itemId)
+    if not ok or not subtype then return end
+
+    self.weapon = subtype
+    self.spell = weaponSpell[subtype]
+
+    -- a relic, an idol, a totem: no ranged attack, so the configured fallback
+    -- stands and the bar becomes a plain distance readout
+    if not self.spell then return end
+
+    --[[ Three sources, weakest first, each overwriting the last. The assumed
+         range beats the configured one because knowing the weapon type is real
+         information; the engine's own numbers beat both because they are not a
+         guess at all. ]]--
+    local assumed = weaponRange[subtype]
+    if assumed then self.minRange, self.maxRange = assumed[1], assumed[2] end
+
+    local minRange, maxRange, spellId = OB.SpellRange(self.spell)
+    if minRange then
+        self.minRange, self.maxRange = minRange, maxRange
+        self.spellId = spellId
+    end
+end
+
+-- ---------------------------------------------------------------------------
 -- backend selection
 -- ---------------------------------------------------------------------------
 
---[[ The best backend this client can run, or the one the user insisted on.
-
-     A forced choice that cannot run falls back rather than leaving the slot
-     blank, and says so once. Silently drawing nothing because a client mod is
-     missing is the failure mode that gets reported as "the range bar is
-     broken". ]]--
 function M:SelectBackend()
     local cfg = self:Config()
     local want = cfg.backend
 
     if want ~= "auto" then
         local forced = OB.rangeBackends[want]
-        if forced and forced.Available(cfg) then return forced, nil end
+        if forced and forced.Available(self) then return forced, nil end
     end
 
     for i = 1, table.getn(OB.rangeOrder) do
         local backend = OB.rangeBackends[OB.rangeOrder[i]]
-        if backend.Available(cfg) then
+        if backend.Available(self) then
             local complaint
             if want ~= "auto" then complaint = want end
             return backend, complaint
@@ -225,34 +402,28 @@ function M:SelectBackend()
     return OB.rangeBackends.bands, nil
 end
 
---[[ Adopt a backend. Its segment count is the module's shape, so a change has to
-     re-lay the row out before the next draw. ]]--
 function M:Probe()
+    self:ScanWeapon()
+
     local chosen, complaint = self:SelectBackend()
 
     --[[ The complaint is tracked separately from the backend, because the usual
-         way to hit it is to force `precise` on a client that cannot run it --
-         and the fallback is then the backend already in use, so keying the
-         message off a *change* of backend would say nothing at all. Which is the
-         one case where the user is actively waiting to be told something.
+         way to hit it is to force one the client cannot run -- and the fallback
+         is then often the backend already in use, so keying the message off a
+         *change* of backend would say nothing in the one case where the user is
+         waiting to be told something.
 
          Tracked rather than printed every time, because PLAYER_ENTERING_WORLD
-         fires on every loading screen and nobody needs telling twice. ]]--
+         fires on every loading screen. ]]--
     if complaint ~= self.complained then
         self.complained = complaint
         if complaint then
-            OB.Print("the '" .. complaint .. "' range backend is not available"
+            OB.Print("the '" .. complaint .. "' distance backend is not available"
                     .. " here -- using " .. chosen.name .. ".")
         end
     end
 
-    if chosen == self.backend then return end
     self.backend = chosen
-
-    if self.frame and self.slotId then
-        self:OnStyle(OB.profile.slots[self.slotId])
-    end
-
     OB.SetDirty(self)
 end
 
@@ -260,42 +431,18 @@ end
 -- reading
 -- ---------------------------------------------------------------------------
 
--- a measured distance placed into the shared band vocabulary
-function M:BandFor(yards)
-    local cfg = self:Config()
-
-    if yards >= cfg.maxRange then return 4 end
-    if cfg.deadZone > 0 and yards < cfg.deadZone then return 1 end
-    return 3
-end
-
---[[ Take a reading, or nil when there is nothing to measure against.
-
-     Test mode substitutes a distance rather than a band, so the preview drives
-     whichever backend is really in play: on a client with UnitXP it sweeps a
-     continuous bar, and on one without it steps through the four bands. Both are
-     what that user will actually see. ]]--
 function M:Read()
     if OB.testMode then
         local yards = OB.test.range or 0
-
-        if self.backend.segments == 1 then return self:BandFor(yards), yards end
-
-        --[[ A segmented backend has no distance to show, and its bands are not
-             the configured ones -- they are the client's fixed thresholds. The
-             preview walks those, so a user without a distance API sees the
-             readout step through every band it will really produce. ]]--
-        local edges = self.backend.edges
-        if not edges then return self:BandFor(yards), nil end
-
-        for i = 1, table.getn(edges) do
-            if yards < edges[i] then return i, nil end
+        if (self.minRange or 0) > 0 and yards < self.minRange then
+            return "tooclose", yards
         end
-        return table.getn(edges) + 1, nil
+        if self.maxRange and yards > self.maxRange then return "toofar", yards end
+        return "inrange", yards
     end
 
     if not UnitExists("target") then return nil, nil end
-    return self.backend.Read(self, "target")
+    return self.backend.Read(self)
 end
 
 function M:OnBind(slot)
@@ -304,10 +451,16 @@ function M:OnBind(slot)
 end
 
 function M:OnEvent()
-    if event == "PLAYER_ENTERING_WORLD" then self:Probe() end
+    if event == "UNIT_INVENTORY_CHANGED" and arg1 and arg1 ~= "player" then
+        return
+    end
 
-    -- both events invalidate the reading, and a target change is the moment a
-    -- stale one is actively misleading: it describes somebody else
+    if event == "PLAYER_ENTERING_WORLD" or event == "UNIT_INVENTORY_CHANGED" then
+        self:Probe()
+    end
+
+    -- both remaining events invalidate the reading, and a target change is the
+    -- moment a stale one is actively misleading: it describes somebody else
     self.nextPoll = 0
     OB.SetDirty(self)
 end
@@ -316,10 +469,10 @@ function M:OnUpdate(now)
     if self.nextPoll and now < self.nextPoll then return end
     self.nextPoll = now + POLL
 
-    local band, yards = self:Read()
-    if band == self.band and yards == self.yards then return end
+    local state, yards = self:Read()
+    if state == self.state and yards == self.yards then return end
 
-    self.band, self.yards = band, yards
+    self.state, self.yards = state, yards
     OB.SetDirty(self)
 end
 
@@ -327,85 +480,52 @@ end
 -- drawing
 -- ---------------------------------------------------------------------------
 
-function M:BandColor(band)
+function M:StateColor(state)
     local cfg = self:Config()
-    if band == 4 then return cfg.outColor end
-    if band == 3 then return cfg.inColor end
-    return cfg.nearColor
+    if state == "inrange" then return cfg.inRangeColor end
+    if state == "tooclose" then return cfg.tooCloseColor end
+    if state == "toofar" then return cfg.tooFarColor end
+    return cfg.noTargetColor
 end
 
 function M:OnStyle(slot)
-    OB.StyleSegments(self.frame, slot, self.backend.segments)
-end
-
---[[ Clear every segment and take the whole row off screen.
-
-     Hiding the group rather than just emptying it, for the same reason the swing
-     bars do: an empty background is a trough, and a trough reads as a bar that
-     has stopped working rather than one with nothing to report. There is no
-     target -- there is nothing to say, so say nothing. ]]--
-local function blank(group, slot)
-    for i = 1, group.count do
-        local bar = group.bars[i]
-        OB.SetBarFill(bar, 0, slot.flip)
-        OB.ClearBarText(bar)
-        OB.HideBarTicks(bar)
-    end
-
-    group:Hide()
+    OB.SetBarColor(self.frame, self:StateColor(self.state))
 end
 
 function M:OnDraw()
     local cfg = self:Config()
     local slot = OB.profile.slots[self.slotId]
-    local group = self.frame
+    local bar = self.frame
 
-    -- no target, or a backend that could not answer: an empty readout is the
-    -- honest one. A stale distance to a target you no longer have is worse.
-    if not self.band then
-        blank(group, slot)
+    local color = self:StateColor(self.state)
+
+    --[[ No target and a fully transparent colour: the whole bar goes, background
+         included, rather than leaving an empty trough -- which reads as a broken
+         bar rather than an absent one.
+
+         Any visible opacity turns it back into a drawn placeholder, which is
+         what makes the No Target colour a setting worth having rather than an
+         elaborate way of spelling "hidden". ]]--
+    if not self.state and (color[4] or 1) <= 0 then
+        bar:Hide()
         return
     end
 
-    if slot.show then group:Show() end
-
-    if self.backend.segments > 1 then
-        for i = 1, group.visible or group.count do
-            -- flipping reverses which end the bands read from, not the fill:
-            -- a band is either lit or it is not
-            local index = i
-            if slot.flip then index = (group.visible or group.count) + 1 - i end
-
-            local bar = group.bars[i]
-            local color = self:BandColor(index)
-
-            OB.SetBarFill(bar, 1, false)
-            if index == self.band then
-                OB.SetBarColor(bar, color)
-            else
-                OB.SetBarColor(bar, color, cfg.dim)
-            end
-        end
-        return
-    end
-
-    local bar = group.bars[1]
+    if slot.show then bar:Show() end
 
     --[[ Closer reads as fuller, so the bar drains as the target walks away and
-         the moment it empties is the moment the shot stops landing. Without a
-         measured distance there is nothing to interpolate, so the block is
-         simply full or empty. ]]--
+         empties at the moment the shot stops landing. Without a measured
+         distance there is nothing to interpolate, so the bar is simply full and
+         the colour carries the whole message. ]]--
     local fraction = 1
-    if self.yards then
+    if self.yards and self.maxRange and self.maxRange > 0 then
         local d = self.yards
-        if d > cfg.maxRange then d = cfg.maxRange end
-        fraction = 1 - (d / cfg.maxRange)
-    elseif self.band == 4 then
-        fraction = 0
+        if d > self.maxRange then d = self.maxRange end
+        fraction = 1 - (d / self.maxRange)
     end
 
     OB.SetBarFill(bar, fraction, slot.flip)
-    OB.SetBarColor(bar, self:BandColor(self.band))
+    OB.SetBarColor(bar, color)
 
     if self.yards and cfg.showText then
         bar.center:SetText(OB.Round(self.yards) .. "y")
@@ -414,12 +534,13 @@ function M:OnDraw()
     end
 
     --[[ The dead zone edge is a fixed point on the bar, so it is drawn as a
-         static tick rather than inferred from the colour change. A hunter
-         backing out of the dead zone is watching for the fill to cross this
-         line, and a line is a much finer thing to aim at than a hue. ]]--
-    if self.yards and cfg.deadZone > 0 and cfg.deadZone < cfg.maxRange then
+         static tick rather than left for the colour change to imply. Backing out
+         of a dead zone means watching the fill cross this line, and a line is a
+         far finer thing to aim at than a hue. ]]--
+    if self.yards and (self.minRange or 0) > 0 and self.maxRange
+            and self.minRange < self.maxRange then
         local c = cfg.tickColor
-        OB.SetBarTick(bar, 1, 1 - (cfg.deadZone / cfg.maxRange), slot.flip,
+        OB.SetBarTick(bar, 1, 1 - (self.minRange / self.maxRange), slot.flip,
                 c[1], c[2], c[3], c[4] or 1)
     else
         OB.HideBarTicks(bar)
@@ -435,8 +556,8 @@ end
      displaced.
 
      It is installed the first time capture is armed and never removed. A global
-     that another addon may have chained onto since cannot be restored without
-     silently unhooking that addon, and a pass-through guarded by one boolean is
+     another addon may have chained onto since cannot be restored without
+     silently unhooking them, and a pass-through guarded by one boolean is
      cheaper than the bookkeeping needed to try. Someone who never captures never
      has UseAction touched at all. ]]--
 local hooked = false
@@ -455,7 +576,7 @@ local function installCapture()
             cfg.actionSlot = slot
             cfg.capture = false
 
-            OB.Print("range: now watching action slot " .. tostring(slot) .. ".")
+            OB.Print("distance: now watching action slot " .. tostring(slot) .. ".")
             M:Probe()
             OB.Refresh(true)
             OB.RefreshPanel()
@@ -468,6 +589,8 @@ end
 M.onChange = {
     backend = function() M:Probe() end,
     actionSlot = function() M:Probe() end,
+    maxRange = function() M:Probe() end,
+    deadZone = function() M:Probe() end,
 
     capture = function()
         local cfg = M:Config()
@@ -479,15 +602,15 @@ M.onChange = {
 
         installCapture()
         M.capturing = true
-        OB.Print("range: press the action you want watched.")
+        OB.Print("distance: press the action you want watched.")
     end,
 }
 
 -- ---------------------------------------------------------------------------
 -- test mode
 --
--- Walk out to well past the configured maximum and back, so every band and both
--- ends of the bar are seen without needing a target.
+-- Walk out past the maximum and back, so every state and both ends of the bar
+-- are seen without needing a target.
 -- ---------------------------------------------------------------------------
 
 function M:TestStart(now)
@@ -497,7 +620,7 @@ function M:TestStart(now)
 end
 
 function M:TestStop()
-    self.band, self.yards = nil, nil
+    self.state, self.yards = nil, nil
     self.nextPoll = 0
 end
 
@@ -505,11 +628,7 @@ function M:TestStep(now)
     if (now - (OB.test.rangeAt or 0)) < 0.1 then return end
     OB.test.rangeAt = now
 
-    --[[ Sixty steps, not a round forty, because the band between duel and trade
-         range is only about 1.2 yards wide and a coarser sweep steps straight
-         over it -- so the preview would never show a band the live readout
-         really does produce. ]]--
-    local ceiling = self:Config().maxRange + 5
+    local ceiling = (self.maxRange or 30) + 5
     local step = ceiling / 60
 
     if OB.test.rangeOut then
