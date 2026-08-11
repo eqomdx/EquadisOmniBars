@@ -214,6 +214,60 @@ for i = 1, table.getn(order) do
 end
 
 -- ---------------------------------------------------------------------------
+-- 1a. every text mode formats
+--
+-- Shared by three modules, so "Current / Max" has to mean the same thing on the
+-- resource bar, the health bar and a druid's mana estimate.
+-- ---------------------------------------------------------------------------
+
+context = "text modes: "
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+
+eq(OB.FormatValue(1234, 2200, "none"), "", "none shows nothing")
+eq(OB.FormatValue(1234, 2200, "value"), "1234", "value shows the number")
+eq(OB.FormatValue(1234, 2200, "percent"), "56%", "percent rounds to whole")
+eq(OB.FormatValue(1234, 2200, "max"), "1234/2200", "max shows both")
+eq(OB.FormatValue(1234, 2200, "valuepct"), "1234 (56%)", "current with a percentage")
+eq(OB.FormatValue(1234, 2200, "maxpct"), "1234/2200 (56%)", "and current over max with one")
+
+-- a zero maximum must not divide by it
+eq(OB.FormatValue(0, 0, "percent"), "0%", "a zero maximum reads as zero percent")
+eq(OB.FormatValue(0, 0, "maxpct"), "0/0 (0%)", "in every mode that shows one")
+
+-- ---------------------------------------------------------------------------
+-- 1b. growing a bar pushes the others away
+--
+-- Only x and y went through the collision path, so with Allow Bar Overlap off --
+-- the setting that exists to say bars must not stack -- dragging a bar was
+-- refused while *growing* one silently overlapped its neighbour.
+-- ---------------------------------------------------------------------------
+
+context = "resize: "
+OB.TogglePanel()
+
+local resizeSlots = OB.profile.slots
+eq(OB.profile.allowOverlap, false, "overlap is off by default")
+
+local belowBefore = resizeSlots.mainhand.y
+check(resizeSlots.mainhand.y <= resizeSlots.resource.y - resizeSlots.resource.h,
+        "the bars start clear of each other")
+
+OB.panel.bar = "resource"
+OB.ApplyOption(OB.optionIndex.slot.h, 40)
+
+eq(resizeSlots.resource.h, 40, "the bar really grew")
+check(resizeSlots.mainhand.y <= resizeSlots.resource.y - resizeSlots.resource.h,
+        "and the bar below was pushed clear rather than overlapped")
+check(resizeSlots.mainhand.y < belowBefore, "which means it moved")
+
+-- with overlap allowed, nothing is pushed
+OB.profile.allowOverlap = true
+local untouched = resizeSlots.mainhand.y
+OB.ApplyOption(OB.optionIndex.slot.h, 24)
+eq(resizeSlots.mainhand.y, untouched, "allowing overlap leaves the others alone")
+
+-- ---------------------------------------------------------------------------
 -- 2. the rendering rules that cost real debugging time
 -- ---------------------------------------------------------------------------
 
@@ -456,9 +510,9 @@ eq(slots.health.y, otherBefore, "an unjoined nudge leaves the others alone")
      rest of the stack in play would prove nothing -- an earlier version of this
      test passed against the wrong bar. ]]--
 OB.profile.allowOverlap = false
-for id, s in pairs(slots) do s.hide = true end
-slots.resource.hide = false
-slots.health.hide = false
+for id, s in pairs(slots) do s.show = false end
+slots.resource.show = true
+slots.health.show = true
 slots.resource.x, slots.resource.y = 0, 80
 slots.health.x, slots.health.y = 0, 55
 OB.BindSlots()
@@ -473,12 +527,12 @@ eq(slots.health.y, blockedFrom - 5, "moving away from an obstruction is allowed"
 slots.health.y = blockedFrom
 
 -- and a hidden slot blocks nothing
-slots.resource.hide = true
+slots.resource.show = false
 OB.BindSlots()
 OB.NudgeSlot("health", 0, 20)
 eq(slots.health.y, blockedFrom + 20, "a hidden slot does not block movement")
 
-for id, s in pairs(slots) do s.hide = false end
+for id, s in pairs(slots) do s.show = true end
 OB.BindSlots()
 
 -- coordinates clamp to one shared range
@@ -708,6 +762,37 @@ check(EquadisOmniBarsDB.profiles.Raiding == nil, "a deleted profile is gone")
 OB.DeleteProfile("Default")
 check(EquadisOmniBarsDB.profiles.Default ~= nil, "Default cannot be deleted")
 
+--[[ Switching from the panel has to leave the panel telling the truth.
+
+     LoadConfig replaces OB.profile wholesale, so every control is left reading a
+     table that no longer exists. The profile dropdown is the one that shows it:
+     it kept naming the profile you had just switched *away from*, which made
+     switching look broken when it had actually worked. The slash path called
+     RefreshPanel; the panel path did not. ]]--
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+OB.NewProfile("Raiding")
+OB.TogglePanel()
+
+local profileDrop = _G["EqOBProfileDrop"]
+check(profileDrop ~= nil, "the profile dropdown exists")
+
+if profileDrop then
+    eq(OB.profileName, "Raiding", "a new profile becomes the active one")
+    eq(profileDrop.selectedValue, "Raiding", "and the dropdown says so")
+    eq(profileDrop.selectedText, "Raiding", "including its label")
+
+    check(Stub.ChooseMenu(profileDrop, "Default"), "picking another profile applies")
+    eq(OB.profileName, "Default", "the profile really changed")
+    eq(profileDrop.selectedValue, "Default", "and the dropdown followed it")
+    eq(profileDrop.selectedText, "Default", "label included")
+
+    -- and back again, because the bug was direction-independent
+    Stub.ChooseMenu(profileDrop, "Raiding")
+    eq(OB.profileName, "Raiding", "switching back works too")
+    eq(profileDrop.selectedText, "Raiding", "and is still reported correctly")
+end
+
 -- ---------------------------------------------------------------------------
 -- 16. visibility rules
 -- ---------------------------------------------------------------------------
@@ -751,11 +836,11 @@ check(OB.container:IsVisible(), "and shows it again when stealth drops")
 OB.profile.hideStealth = false
 
 -- a hidden slot hides only itself
-OB.profile.slots.health.hide = true
+OB.profile.slots.health.show = false
 OB.Toggle()
 check(not OB.modules.health.frame:IsShown(), "a hidden slot hides its bar")
 check(OB.modules.power.frame:IsShown(), "and leaves the others alone")
-OB.profile.slots.health.hide = false
+OB.profile.slots.health.show = true
 
 -- ---------------------------------------------------------------------------
 -- 17. test mode drives every bound module
@@ -941,17 +1026,27 @@ if barColor then
     near(c[4], 0.8, 0.001, "the inverted opacity slider is flipped on the way in")
 end
 
--- a dependent row hides when its condition is off
-OB.panel.bar = "health"
+--[[ A dependent row hides when its condition is off.
+
+     Uses the `@predicate` form, which is the only one with live users: the five
+     second rule rows belong to mana and nothing else, so a rogue on energy must
+     not see them. ]]--
+OB.panel.bar = "resource"
 OB.RefreshPanel()
-local lowColor = _G["EqOBSwatch_module_health_lowColor"]
-check(lowColor ~= nil, "the low health colour swatch exists")
-if lowColor then
-    check(not lowColor:IsShown(), "it is hidden while the low health option is off")
-    OB.profile.modules.health.lowEnable = true
+
+local fsrColor = _G["EqOBSwatch_module_power_fsrColor"]
+check(fsrColor ~= nil, "the five second rule colour swatch exists")
+
+if fsrColor then
+    eq(OB.modules.power.ptype, 3, "this rogue is on energy")
+    check(not fsrColor:IsShown(), "so a mana-only row is hidden")
+
+    OB.modules.power.ptype = 0
     OB.RefreshPanel()
-    check(lowColor:IsShown(), "and shown once the option is on")
-    OB.profile.modules.health.lowEnable = false
+    check(fsrColor:IsShown(), "and shown for a caster")
+
+    OB.modules.power.ptype = 3
+    OB.RefreshPanel()
 end
 
 --[[ The shape the panel is supposed to have, asserted directly.
@@ -1026,8 +1121,9 @@ run("scale 120")
 near(OB.profile.scale, 1.2, 0.001, "a global option is settable")
 
 -- camelCase keys have to work from a prompt nobody shift-types
-run("fontsize 16")
-eq(OB.profile.fontSize, 16, "a camelCase key resolves case-insensitively")
+run("hideooc on")
+eq(OB.profile.hideOOC, true, "a camelCase key resolves case-insensitively")
+run("hideooc off")
 
 run("bar resource h 20")
 eq(OB.profile.slots.resource.h, 20, "a bar option is settable")
@@ -1391,7 +1487,7 @@ eq(mana.cur, 1000, "returning to caster form resyncs from an API telling the tru
      full bar on it; there is nothing to estimate from, so nothing is drawn. ]]--
 OB = boot("DRUID", 3, druidWorld)
 mana = OB.modules.druidmana
-OB.profile.slots.distance.hide = false
+OB.profile.slots.distance.show = true
 OB.Refresh(true)
 Stub.Tick(0.05, 2)
 
@@ -1411,7 +1507,7 @@ context = "empty bars: "
 
 EquadisOmniBarsDB = nil
 OB = boot("ROGUE", 3, { offSpeed = 1.7 })
-OB.profile.slots.distance.hide = false
+OB.profile.slots.distance.show = true
 OB.Refresh(true)
 Stub.Tick(0.05, 2)
 
@@ -1458,9 +1554,10 @@ OB = boot("ROGUE", 3, { savedVariables = {
         assign = { ["*"] = { aux = "none" }, ROGUE = { points = "health" } },
         slots = {
             -- a layout somebody tuned: narrower, taller, nudged right
+            -- a schema 2 profile carries `hide`, not `show`
             swingA = { x = 40, y = 93, w = 150, h = 20, textSize = 14,
                        hide = false, flip = true, bg = { 1, 0, 0, 0.3 } },
-            points = { x = 40, y = 115, w = 150, h = 10 },
+            points = { x = 40, y = 115, w = 150, h = 10, hide = true },
             aux    = { x = 40, y = 38,  w = 150, h = 14 },
         },
         modules = {
@@ -1470,7 +1567,15 @@ OB = boot("ROGUE", 3, { savedVariables = {
     } },
 } })
 
-eq(OB.profile.schema, 3, "an old profile is migrated forward")
+eq(OB.profile.schema, 4, "an old profile is migrated forward")
+
+--[[ `hide` became `show`, inverted. A schema-2 profile carries no `show` at all,
+     so the default supplies one and the migration has to overwrite it from the
+     saved `hide` -- getting that backwards would silently reveal every bar
+     somebody had switched off. ]]--
+eq(OB.profile.slots.mainhand.show, true, "a bar that was not hidden is now shown")
+eq(OB.profile.slots.extras.show, false, "and one that was hidden stays switched off")
+check(OB.profile.slots.mainhand.hide == nil, "the old key is gone")
 
 -- geometry survives the rename, all of it except the Y the restack rewrites
 local mainhand = OB.profile.slots.mainhand

@@ -81,7 +81,7 @@ end
 -- a slot only participates in collision when something is actually drawn in it
 local function slotActive(slotId)
     if not OB.bound[slotId] then return false end
-    return not OB.profile.slots[slotId].hide
+    return OB.profile.slots[slotId].show and true or false
 end
 
 --[[ True when placing `slotId` at (x, y) would overlap another drawn slot.
@@ -119,16 +119,25 @@ function OB.SlotCollides(slotId, x, y)
     return false
 end
 
---[[ After the border style grows, slots that sat closer together than the new
-     border footprint would show overlapping border art. Drop each offending slot
-     straight down until its border just touches the one above -- touching is
-     allowed, stacking is not. ]]--
-function OB.ResolveBorderOverlap()
+--[[ Push bars apart when one of them grows into another.
+
+     Drop each offending bar straight down until it just touches the one above --
+     touching is allowed, stacking is not.
+
+     Two things make a bar grow into its neighbour: a heavier border, and the
+     width or height sliders. Only the border case used to be handled, because
+     only x and y went through the collision path -- so growing a bar's height
+     silently overlapped the bar below it while Allow Bar Overlap was off, which
+     is the setting saying that should not happen. The size sliders now call
+     this too.
+
+     It runs at pad 0 as well. Without a border the bars simply end up touching
+     rather than separated, which is the correct resolution for that case, and
+     the old early return is exactly what made a plain resize overlap. ]]--
+function OB.ResolveOverlap()
     if not OB.profile or OB.profile.allowOverlap then return end
 
     local pad = OB.BorderPad()
-    if pad == 0 then return end
-
     local slots = OB.profile.slots
 
     local order = {}

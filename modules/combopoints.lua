@@ -33,11 +33,11 @@ local M = OB.RegisterModule({
     },
 
     options = {
-        { "Point 1 Colour", "colors.1", "color", true },
-        { "Point 2 Colour", "colors.2", "color", true },
-        { "Point 3 Colour", "colors.3", "color", true },
-        { "Point 4 Colour", "colors.4", "color", true },
-        { "Point 5 Colour", "colors.5", "color", true },
+        { "Point 1 Color", "colors.1", "color", true },
+        { "Point 2 Color", "colors.2", "color", true },
+        { "Point 3 Color", "colors.3", "color", true },
+        { "Point 4 Color", "colors.4", "color", true },
+        { "Point 5 Color", "colors.5", "color", true },
         { "Inactive Opacity", "dim", "slider", 0, 100, 5, 0.01 },
         { "Hide At Zero Points", "hideWhenZero", "boolean" },
     },
@@ -80,7 +80,7 @@ function M:OnDraw()
         self.frame:Hide()
         return
     end
-    if not slot.hide then self.frame:Show() end
+    if slot.show then self.frame:Show() end
 
     for i = 1, self.frame.count do
         -- flipping reverses which end lights up first, not the fill direction:

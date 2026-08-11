@@ -53,7 +53,7 @@ end
      automatically for a rogue would move a hunter's bars. Restack Occupied Bars
      does it on demand -- see constraint 15. ]]--
 OB.defaults = {
-    schema = 3,
+    schema = 4,
 
     -- visibility
     show = true,
@@ -84,21 +84,21 @@ OB.defaults = {
     modulesEnabled = {},
 
     slots = {
-        health    = { x = 0, y = 115, w = 200, h = 16, hide = false, flip = false,
+        health    = { x = 0, y = 115, w = 200, h = 16, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 11 },
-        resource  = { x = 0, y = 98,  w = 200, h = 24, hide = false, flip = false,
+        resource  = { x = 0, y = 98,  w = 200, h = 24, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 12 },
-        mainhand  = { x = 0, y = 73,  w = 200, h = 12, hide = false, flip = false,
+        mainhand  = { x = 0, y = 73,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.8 }, textSize = 10 },
-        offhand   = { x = 0, y = 60,  w = 200, h = 12, hide = false, flip = false,
+        offhand   = { x = 0, y = 60,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.8 }, textSize = 10 },
-        ranged    = { x = 0, y = 47,  w = 200, h = 12, hide = false, flip = false,
+        ranged    = { x = 0, y = 47,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.8 }, textSize = 10 },
-        distance  = { x = 0, y = 34,  w = 200, h = 12, hide = true,  flip = false,
+        distance  = { x = 0, y = 34,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 10 },
-        secondary = { x = 0, y = 21,  w = 200, h = 12, hide = true,  flip = false,
+        secondary = { x = 0, y = 21,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 10 },
-        extras    = { x = 0, y = 8,   w = 200, h = 8,  hide = false, flip = false,
+        extras    = { x = 0, y = 8,   w = 200, h = 8,  show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 12 },
     },
 
@@ -229,6 +229,36 @@ OB.profileMigrations = {
         OB.Print("slots are now bars, and yours have been re-stacked in the new "
                 .. "order. Drag them, or use Restack on the Bars page, to change it.")
     end },
+
+    --[[ `hide` became `show`, inverted.
+
+         A negative checkbox is a small papercut every single time it is read --
+         "Hide Bar: unchecked" takes a beat to turn into "the bar is visible" --
+         and this one had the additional problem of defaulting to off for two
+         bars, so the readout you wanted was the one that looked disabled. A
+         rename *and* an inversion is precisely the case the migration list
+         exists for; a defaults change alone would have silently flipped every
+         saved value.
+
+         The low-health recolour goes at the same time. It is superseded by the
+         planned colour-by-remaining-health, and leaving three dead keys in every
+         saved profile forever is how a config file becomes archaeology. ]]--
+    { 4, function(p)
+        if p.slots then
+            for id, bar in pairs(p.slots) do
+                if bar.hide ~= nil then
+                    bar.show = not bar.hide
+                    bar.hide = nil
+                end
+            end
+        end
+
+        if p.modules and p.modules.health then
+            p.modules.health.lowEnable = nil
+            p.modules.health.lowThreshold = nil
+            p.modules.health.lowColor = nil
+        end
+    end },
 }
 
 function OB.RunProfileMigrations(p)
@@ -276,7 +306,7 @@ local function importGeometry(slot, el)
     if el.X then slot.x = OB.ClampCoord(el.X) end
     if el.Y then slot.y = OB.ClampCoord(el.Y) end
     if el.TextSize then slot.textSize = el.TextSize end
-    if el.Hide ~= nil then slot.hide = el.Hide and true or false end
+    if el.Hide ~= nil then slot.show = not el.Hide end
     if el.Flip ~= nil then slot.flip = el.Flip and true or false end
     slot.bg = copyColor(el.BGColor, slot.bg)
 end
@@ -487,11 +517,21 @@ function OB.ProfileNames()
     return names
 end
 
--- every profile switch goes the same way: rebuild config, rebind, redraw
+--[[ Every profile switch goes the same way: rebuild config, rebind, redraw, and
+     re-read the panel.
+
+     That last step is not optional and its absence was a real bug. LoadConfig
+     replaces OB.profile wholesale, so every control on the panel is now reading
+     a table that no longer exists -- and the profile dropdown in particular kept
+     naming the profile you had just switched away from, which made switching
+     look broken while it had in fact worked. The slash path called RefreshPanel
+     itself; the panel path did not, so the control that most needed refreshing
+     was the one that never got it. ]]--
 local function reload()
     OB.LoadConfig()
     OB.BindSlots()
     OB.Refresh(true)
+    OB.RefreshPanel()
 end
 
 function OB.SetProfile(name)

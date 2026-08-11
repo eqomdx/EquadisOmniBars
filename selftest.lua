@@ -225,9 +225,9 @@ section("bound modules", function(t)
                  baseline hides on purpose (constraint 19). A check that fails on
                  correct behaviour teaches people to ignore it, and then to
                  ignore the one next to it. ]]--
-            if slot.hide and m.frame then
+            if not slot.show and m.frame then
                 t:ok(not m.frame:IsShown(),
-                        slotId .. " is a hidden slot but " .. m.id .. " is showing")
+                        slotId .. " is switched off but " .. m.id .. " is showing")
             end
         end
     end

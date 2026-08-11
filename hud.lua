@@ -192,12 +192,12 @@ function OB.Toggle()
         OB.container:Hide()
     end
 
-    -- per-slot visibility: a slot can be hidden without unbinding its module
+    -- per-bar visibility: a bar can be switched off without unbinding its module
     for slotId, m in pairs(OB.bound) do
-        if OB.profile.slots[slotId].hide then
-            m.frame:Hide()
-        else
+        if OB.profile.slots[slotId].show then
             m.frame:Show()
+        else
+            m.frame:Hide()
         end
     end
 

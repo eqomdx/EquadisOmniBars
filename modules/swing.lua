@@ -180,7 +180,7 @@ tracker:RegisterEvent("CHAT_MSG_SPELL_SELF_DAMAGE")
 
 local function swingOptions()
     return {
-        { "Bar Colour", "color", "color", true },
+        { "Bar Color", "color", "color", true },
         { "Show Timer", "showTimer", "boolean" },
         { "Show Weapon Speed", "showSpeed", "boolean" },
         { "Swap Text Sides", "swap", "boolean" },
@@ -267,7 +267,7 @@ function impl:OnUpdate(now)
         return
     end
 
-    if not slot.hide then self.frame:Show() end
+    if slot.show then self.frame:Show() end
 
     --[[ The bar shows how charged the swing is, so idle -- not auto attacking --
          reads as ready rather than empty. The swing really is available. ]]--

@@ -25,37 +25,34 @@ local M = OB.RegisterModule({
         classColor = false,
         textMode = "max",
 
-        --[[ Recolour below a threshold. Off by default, but it is the single
-             most useful thing a small health bar can do: at a glance the bar
-             says "low" without you having to read the number. ]]--
-        lowEnable = false,
-        lowThreshold = 0.35,
-        lowColor = { 0.90, 0.10, 0.10, 1 },
-
         --[[ Reserved, and read by nothing. The intent is a bar that slides from
              green through to red as health falls, the way the threat meter
              shades. The checkbox exists so the plan is visible where the setting
              will live; its caption says outright that it does not work yet.
 
-             Do not wire this up incidentally -- it needs a colour ramp and a
-             decision about how it interacts with Colour By Class and the low
-             health override, none of which are designed. ]]--
+             It replaced a three-setting "recolor when low" -- an enable, a
+             threshold and a colour -- which did roughly the same job in one
+             step rather than continuously. Those are gone rather than kept
+             alongside: two overlapping ways to colour a health bar by its own
+             value is one too many, and the migration clears them.
+
+             Do not wire this up incidentally. It needs a colour ramp and a
+             decision about how it interacts with Color By Class, neither of
+             which is designed. ]]--
         healthGradient = false,
     },
 
     options = {
-        --[[ Stays visible when Colour By Class is on. Class colour *overrides*
+        --[[ Stays visible when Color By Class is on. Class colour *overrides*
              this swatch rather than replacing the setting, and hiding the row
              made the override look like the colour had been deleted. ]]--
-        { "Bar Colour", "color", "color", true },
-        { "Colour By Class", "classColor", "boolean" },
-        { "Colour By Remaining Health - NOT ADDED YET", "healthGradient", "boolean" },
+        { "Bar Color", "color", "color", true },
+        { "Color By Class", "classColor", "boolean" },
+        { "Color By Remaining Health - NOT ADDED YET", "healthGradient", "boolean" },
         { "Text", "textMode", OB.Enum(
-                { "none", "value", "percent", "max" },
-                { "None", "Current Only", "Percentage", "Current / Max" }) },
-        { "Recolour When Low", "lowEnable", "boolean" },
-        { "Low Threshold", "lowThreshold", "slider", 5, 95, 5, 0.01, "lowEnable" },
-        { "Low Colour", "lowColor", "color", true, nil, nil, nil, "lowEnable" },
+                { "none", "value", "percent", "max", "valuepct", "maxpct" },
+                { "None", "Current Only", "Percentage", "Current / Max",
+                  "Current (Percent)", "Current / Max (Percent)" }) },
     },
 
     requires = { "UnitHealth", "UnitHealthMax" },
@@ -92,10 +89,6 @@ end
      to handle arbitrary units, reactions, tapped mobs and pet happiness. ]]--
 function M:CurrentColor(fraction)
     local cfg = self:Config()
-
-    if cfg.lowEnable and fraction <= cfg.lowThreshold then
-        return cfg.lowColor
-    end
 
     if cfg.classColor then
         local r, g, b = OB.ClassColor(OB.class)

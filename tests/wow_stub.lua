@@ -660,9 +660,30 @@ function UIDropDownMenu_Initialize(frame, fn) frame.initialize = fn end
 function UIDropDownMenu_SetWidth(width, frame)
     if frame then frame.dropWidth = width end
 end
+
+--[[ SetSelectedValue calls UIDropDownMenu_Refresh on the real client, and Refresh
+     both moves the check mark AND sets the label from the matching button. The
+     addon therefore does not call SetText at all -- doing so alongside
+     info.checked is what put several ticks in one menu (constraint 25).
+
+     Modelled here rather than left as a bare assignment because a stub that only
+     records the value cannot tell a working dropdown from one whose label never
+     updates -- which is exactly the profile-switching bug that shipped: the
+     profile changed, and the dropdown went on naming the old one. ]]--
 function UIDropDownMenu_SetSelectedValue(frame, value)
-    if frame then frame.selectedValue = value end
+    if not frame then return end
+
+    frame.selectedValue = value
+    frame.selectedText = nil
+
+    if not frame.initialize then return end
+
+    local buttons = Stub.OpenMenu(frame)
+    for i = 1, table.getn(buttons) do
+        if buttons[i].value == value then frame.selectedText = buttons[i].text end
+    end
 end
+
 function UIDropDownMenu_SetText(text, frame)
     if frame then frame.selectedText = text end
 end

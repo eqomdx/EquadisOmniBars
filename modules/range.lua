@@ -169,10 +169,10 @@ local M = OB.RegisterModule({
         { "Show Yards", "showText", "boolean" },
         { "Watched Action Slot", "actionSlot", "slider", 0, 120, 1 },
         { "Capture Next Action", "capture", "boolean" },
-        { "In Range Colour", "inColor", "color", true },
-        { "Too Close Colour", "nearColor", "color", true },
-        { "Out Of Range Colour", "outColor", "color", true },
-        { "Marker Colour", "tickColor", "color", true },
+        { "In Range Color", "inColor", "color", true },
+        { "Too Close Color", "nearColor", "color", true },
+        { "Out Of Range Color", "outColor", "color", true },
+        { "Marker Color", "tickColor", "color", true },
         { "Inactive Opacity", "dim", "slider", 0, 100, 5, 0.01 },
     },
 
@@ -367,7 +367,7 @@ function M:OnDraw()
         return
     end
 
-    if not slot.hide then group:Show() end
+    if slot.show then group:Show() end
 
     if self.backend.segments > 1 then
         for i = 1, group.visible or group.count do

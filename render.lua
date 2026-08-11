@@ -96,12 +96,17 @@ function OB.FormatValue(value, max, mode)
     value = value or 0
     max = max or 0
 
-    if mode == "percent" then
+    -- one place decides what a percentage is, so every mode that shows one
+    -- rounds the same way
+    local function percent()
         if max == 0 then return "0%" end
         return floor((value / max) * 100 + 0.5) .. "%"
     end
 
+    if mode == "percent" then return percent() end
     if mode == "max" then return value .. "/" .. max end
+    if mode == "valuepct" then return value .. " (" .. percent() .. ")" end
+    if mode == "maxpct" then return value .. "/" .. max .. " (" .. percent() .. ")" end
 
     return "" .. value
 end

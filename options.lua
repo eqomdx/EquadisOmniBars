@@ -67,7 +67,7 @@ OB.onChange = {
     border = function()
         -- a heavier border may not fit between bars placed edge to edge, so
         -- spread them before applying or the border art stacks
-        OB.ResolveBorderOverlap()
+        OB.ResolveOverlap()
     end,
     join = function() OB.ExitMoveMode() end,
     locked = function() OB.ExitMoveMode() end,
@@ -108,6 +108,15 @@ function OB.ApplyOption(w, value)
     end
 
     OB.Set(t, w.key, value)
+
+    --[[ Growing a bar can push it into the one below, and Allow Bar Overlap
+         being off is the user saying that must not happen. Position already goes
+         through the collision path above; size has to be resolved after the
+         fact, because a bar has to be allowed to grow -- it is the *other* bars
+         that move. ]]--
+    if w.scope == "slot" and (w.key == "w" or w.key == "h") then
+        OB.ResolveOverlap()
+    end
 
     if w.scope == "global" and OB.onChange[w.key] then OB.onChange[w.key]() end
 
@@ -797,7 +806,7 @@ local generalLeft = {
     { "Move Bars Together", "join", "boolean" },
     { "Allow Bar Overlap", "allowOverlap", "boolean" },
     { "Feedback", "__h_fb", "header" },
-    { "Tick Sound", "audible", "boolean" },
+    { "Resource Tick Noise", "audible", "boolean" },
 }
 
 local generalRight = {
@@ -808,20 +817,28 @@ local generalRight = {
     { "Bar Texture", "texture", OB.textures, 150 },
     { "Bar Border", "border", OB.borders, 150 },
     { "Font", "font", OB.fonts, 150 },
-    { "Font Size", "fontSize", "slider", 6, 24, 1 },
     { "Font Outline", "fontOutline", "boolean" },
+
+    --[[ There is no global Font Size row, and that is deliberate rather than an
+         oversight. Every bar sets its own Text Size and always wins -- StyleBar
+         reads `slot.textSize` -- so a global size control did nothing at all,
+         which is worse than not having one. Face and outline stay here because
+         they *do* apply everywhere.
+
+         `profile.fontSize` still exists as the fallback for a font string with
+         no bar behind it, and OB.ApplyFont uses it when called without a size. ]]--
 }
 
 local slotGeometry = {
     { "Geometry", "__h_geo", "header" },
-    { "Hide Slot", "hide", "boolean" },
+    { "Show Bar", "show", "boolean" },
     { "Flip Fill", "flip", "boolean" },
     { "Width", "w", "slider", 0, 400, 1 },
     { "Height", "h", "slider", 1, 40, 1 },
     { "X Position", "x", "slider", -2000, 2000, 1 },
     { "Y Position", "y", "slider", -2000, 2000, 1 },
     { "Text Size", "textSize", "slider", 6, 40, 1 },
-    { "Background Colour", "bg", "color", true },
+    { "Background Color", "bg", "color", true },
 }
 
 -- ---------------------------------------------------------------------------
@@ -901,7 +918,7 @@ function OB.ParseOption(w, args)
 
     if w.kind == "color" then
         local _, _, hex = string.find(args, "^#?(%x%x%x%x%x%x)$")
-        if not hex then return "give a colour as rrggbb, e.g. ffcc00" end
+        if not hex then return "give a color as rrggbb, e.g. ffcc00" end
 
         -- the prompt sets the colour only; an alpha the picker stored survives
         local previous = readValue(w) or {}

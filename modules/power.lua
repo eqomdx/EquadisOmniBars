@@ -163,19 +163,20 @@ local M = OB.RegisterModule({
     },
 
     options = {
-        { "Bar Colour", "@variant:color", "color", true },
+        { "Bar Color", "@variant:color", "color", true },
         { "Ticker", "@variant:ticker", OB.Enum(
                 { "always", "nofull", "never" },
                 { "Show Always", "Hide When Full", "Never Show" }) },
-        { "Ticker Colour", "tickerColor", "color", true },
+        { "Ticker Color", "tickerColor", "color", true },
         { "Text", "textMode", OB.Enum(
-                { "none", "value", "percent", "max" },
-                { "None", "Current Only", "Percentage", "Current / Max" }) },
+                { "none", "value", "percent", "max", "valuepct", "maxpct" },
+                { "None", "Current Only", "Percentage", "Current / Max",
+                  "Current (Percent)", "Current / Max (Percent)" }) },
         { "Shade Five Second Rule", "fsrShade", "boolean", nil, nil, nil, nil, "@power_mana" },
-        { "Five Second Rule Colour", "fsrColor", "color", true, nil, nil, nil, "@power_mana" },
+        { "Five Second Rule Color", "fsrColor", "color", true, nil, nil, nil, "@power_mana" },
         { "Mark Rage Decay", "rageDecay", "boolean", nil, nil, nil, nil, "@power_rage" },
         { "Decay Look Ahead", "rageDecaySeconds", "slider", 1, 10, 1, nil, "@power_rage" },
-        { "Decay Marker Colour", "rageDecayColor", "color", true, nil, nil, nil, "@power_rage" },
+        { "Decay Marker Color", "rageDecayColor", "color", true, nil, nil, nil, "@power_rage" },
     },
 
     requires = { "UnitMana", "UnitManaMax", "UnitPowerType" },

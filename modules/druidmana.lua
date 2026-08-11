@@ -95,10 +95,11 @@ local M = OB.RegisterModule({
     },
 
     options = {
-        { "Bar Colour", "color", "color", true },
+        { "Bar Color", "color", "color", true },
         { "Text", "textMode", OB.Enum(
-                { "none", "value", "percent", "max" },
-                { "None", "Current Only", "Percentage", "Current / Max" }) },
+                { "none", "value", "percent", "max", "valuepct", "maxpct" },
+                { "None", "Current Only", "Percentage", "Current / Max",
+                  "Current (Percent)", "Current / Max (Percent)" }) },
         { "Hide In Caster Form", "hideInCaster", "boolean" },
     },
 
@@ -411,7 +412,7 @@ function M:OnDraw()
         self.frame:Hide()
         return
     end
-    if not slot.hide then self.frame:Show() end
+    if slot.show then self.frame:Show() end
 
     local value, max = self:GetValue()
 

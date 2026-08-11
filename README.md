@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.3.0 — in development.**
+> **Version 0.3.1 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -54,13 +54,13 @@ starting over.
 
 In OmniBars the **rectangle** and **what is drawn in it** are separate things.
 Position, size, texture, border and background belong to the bar and are shared
-by every character on the profile. Colour and behaviour belong to the module,
+by every character on the profile. Color and behavior belong to the module,
 because those are the things that *should* differ — energy yellow, rage red,
 health green.
 
 So the resource bar is one rectangle. A rogue fills it with energy, a warrior with
-rage, a priest with mana: same place, same size, different colour. A druid
-shifting form does not move it either — only the colour and the ticker change.
+rage, a priest with mana: same place, same size, different color. A druid
+shifting form does not move it either — only the color and the ticker change.
 
 ### The bars
 
@@ -78,9 +78,11 @@ Drag them into whatever order you actually want.
 | Secondary Resource | A druid's mana while shifted |
 | Extras | Class specific — combo points for a rogue or druid |
 
-Bars your class cannot use are not listed at all: a warrior has no Extras and no
-Secondary Resource. A bar with nothing to say hides itself, so an empty off hand
-leaves no gap in the art — just space.
+Each bar has a **Show Bar** switch, on by default. Bars your class cannot use are
+not listed at all: a warrior has no Extras and no Secondary Resource. And a bar
+with nothing to say hides itself whatever that switch says — no off hand
+equipped, nothing ranged equipped, no target for the Distance readout — so an
+empty off hand leaves no gap in the art, just space.
 
 That space is not closed up automatically, because bar positions are shared and
 closing a gap for one character would move another's. **Restack Occupied Bars**
@@ -96,7 +98,7 @@ window, optionally shaded on the bar as a shrinking region. Rage does not tick,
 but it leaks — an optional marker shows where it will have decayed to a few
 seconds from now, at a rate measured from your own server rather than assumed.
 
-**Combo Points** — five segments, one colour each, inactive points dimmed to a
+**Combo Points** — five segments, one color each, inactive points dimmed to a
 configurable opacity.
 
 **Swing Timers** — main hand, off hand and ranged, with remaining time and weapon
@@ -105,9 +107,10 @@ combat log does not say which hand swung, a landed swing is attributed to
 whichever hand has been ready *longest* — which is what lets the pair recover on
 its own after a stun or a run out of range.
 
-**Health** — green by default, any colour, optionally your class colour (which
-overrides the swatch rather than replacing it), with an optional recolour below a
-threshold.
+**Health** — green by default, any color, optionally your class color, which
+overrides the swatch rather than replacing it. A **Color By Remaining Health**
+checkbox marks where a continuous green-to-red gradient will go; it says outright
+that it does nothing yet.
 
 **Distance** — how far away your target is, drawn by whichever of three backends
 your client can actually support. With SuperWoW's `UnitXP` it is a real distance:
