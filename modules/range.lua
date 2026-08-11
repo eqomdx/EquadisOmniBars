@@ -1,4 +1,4 @@
---[[ Equadis' OmniBars :: distance
+--[[ Equadis' OmniBars :: ranged distance check
 
   Can I hit my target from here, and how far away is it.
 
@@ -264,7 +264,7 @@ local POLL = 0.1
 
 local M = OB.RegisterModule({
     id = "distance",
-    name = "Distance",
+    name = "Ranged Distance Check",
     bar = "distance",
     renders = "bar",
     tickly = true,
@@ -290,7 +290,6 @@ local M = OB.RegisterModule({
              placeholder instead -- see OnDraw. ]]--
         noTargetColor = { 0, 0, 0, 0 },
 
-        tickColor = { 1, 1, 1, 0.7 },
     },
 
     options = {
@@ -302,7 +301,6 @@ local M = OB.RegisterModule({
         { "Too Close Color", "tooCloseColor", "color", true },
         { "Too Far Color", "tooFarColor", "color", true },
         { "No Target Color", "noTargetColor", "color", true },
-        { "Marker Color", "tickColor", "color", true },
         { "Show Yards", "showText", "boolean" },
         { "Fallback Maximum Range", "maxRange", "slider", 5, 100, 1 },
         { "Fallback Dead Zone", "deadZone", "slider", 0, 20, 1 },
@@ -513,18 +511,19 @@ function M:OnDraw()
 
     if slot.show then bar:Show() end
 
-    --[[ Closer reads as fuller, so the bar drains as the target walks away and
-         empties at the moment the shot stops landing. Without a measured
-         distance there is nothing to interpolate, so the bar is simply full and
-         the colour carries the whole message. ]]--
-    local fraction = 1
-    if self.yards and self.maxRange and self.maxRange > 0 then
-        local d = self.yards
-        if d > self.maxRange then d = self.maxRange end
-        fraction = 1 - (d / self.maxRange)
-    end
+    --[[ **Always full.** The colour is the entire reading, and a bar that is
+         sometimes a block of colour and sometimes a partial fill is two readouts
+         wearing one rectangle -- you end up asking whether the bar is short
+         because the target is far or because the reading failed.
 
-    OB.SetBarFill(bar, fraction, slot.flip)
+         An earlier draft drained the fill in proportion to distance. It looked
+         informative and it was not: at the exact moment the answer matters --
+         crossing in or out of range -- the fill is at its smallest and the
+         colour has already told you. So the fill carries nothing and the whole
+         bar carries the state.
+
+         The yardage still goes in the centre text, where a number belongs. ]]--
+    OB.SetBarFill(bar, 1, slot.flip)
     OB.SetBarColor(bar, color)
 
     if self.yards and cfg.showText then
@@ -533,18 +532,9 @@ function M:OnDraw()
         bar.center:SetText("")
     end
 
-    --[[ The dead zone edge is a fixed point on the bar, so it is drawn as a
-         static tick rather than left for the colour change to imply. Backing out
-         of a dead zone means watching the fill cross this line, and a line is a
-         far finer thing to aim at than a hue. ]]--
-    if self.yards and (self.minRange or 0) > 0 and self.maxRange
-            and self.minRange < self.maxRange then
-        local c = cfg.tickColor
-        OB.SetBarTick(bar, 1, 1 - (self.minRange / self.maxRange), slot.flip,
-                c[1], c[2], c[3], c[4] or 1)
-    else
-        OB.HideBarTicks(bar)
-    end
+    -- the dead zone edge used to be ticked, marking where a draining fill would
+    -- cross it. With nothing draining there is no crossing to mark.
+    OB.HideBarTicks(bar)
 end
 
 -- ---------------------------------------------------------------------------

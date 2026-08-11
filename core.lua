@@ -17,7 +17,7 @@ local _G = getfenv(0)
 EquadisOmniBars = {}
 local OB = EquadisOmniBars
 
-OB.version = "0.4.0"
+OB.version = "0.4.1"
 OB.addonName = "Equadis' OmniBars"
 
 --[[ The addon folder name is load-bearing: every media path below hardcodes it,
@@ -302,7 +302,7 @@ OB.barLabels = {
     mainhand  = "Main Hand",
     offhand   = "Off Hand",
     ranged    = "Ranged",
-    distance  = "Distance",
+    distance  = "Ranged Distance Check",
     secondary = "Secondary Resource",
     extras    = "Extras",
 }

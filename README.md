@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.4.0 — in development.**
+> **Version 0.4.1 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -74,7 +74,7 @@ Drag them into whatever order you actually want.
 | Main Hand | Main hand swing timer |
 | Off Hand | Off hand swing timer |
 | Ranged | Auto shot timer |
-| Distance | How far away your target is |
+| Ranged Distance Check | Can you hit your target from here |
 | Secondary Resource | A druid's mana while shifted |
 | Extras | Class specific — combo points for a rogue or druid |
 
@@ -112,8 +112,8 @@ overrides the swatch rather than replacing it. A **Color By Remaining Health**
 checkbox marks where a continuous green-to-red gradient will go; it says outright
 that it does nothing yet.
 
-**Distance** — can you hit your target from here. One bar, colored by state, and
-all four colors are yours to set:
+**Ranged Distance Check** — can you hit your target from here. **One bar, always
+full**, and its color is the whole answer. All four colors are yours to set:
 
 | State | Default |
 |---|---|
@@ -129,13 +129,23 @@ a wand has no dead zone and a hunter's bow does.
 
 How precisely it can answer depends on your client. With **Nampower** it uses the
 game's own range check, including the real minimum range. With **SuperWoW** it
-also gets a true distance, so the bar drains as your target walks away and shows
-the yardage. With neither, it falls back to the game's coarse interaction
-distances, or to one action bar slot you nominate — press **Capture Next Action**
-and then the button you want it to follow.
+also gets a true distance and shows the yardage on the bar. With neither, it falls
+back to the game's coarse interaction distances, or to one action bar slot you
+nominate.
+
+Two settings only matter when the above cannot answer, and on most installs they
+never come into play:
+
+- **Capture Next Action** — arms a one-shot capture; the next action button you
+  press becomes the one whose range is watched. Only used by the action-slot
+  fallback, which needs a slot number and has no way to find your auto-attack on
+  its own.
+- **Fallback Maximum Range** and **Fallback Dead Zone** — the range to assume
+  when nothing can supply the real one: a relic in the ranged slot (paladin,
+  shaman, druid), or a client without Nampower *and* an unrecognized weapon.
 
 Classes with a relic in the ranged slot have no ranged attack at all, so the bar
-becomes a plain distance readout using the fallback range you set.
+becomes a plain distance readout using that fallback range.
 
 **Druid Mana** — how much mana you still have in bear or cat form. Vanilla stops
 reporting it the moment you shift, so it is simulated from the shift onwards:

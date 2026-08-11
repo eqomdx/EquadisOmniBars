@@ -53,7 +53,7 @@ end
      automatically for a rogue would move a hunter's bars. Restack Occupied Bars
      does it on demand -- see constraint 15. ]]--
 OB.defaults = {
-    schema = 6,
+    schema = 7,
 
     -- visibility
     show = true,
@@ -89,13 +89,13 @@ OB.defaults = {
         resource  = { x = 0, y = 98,  w = 200, h = 24, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 12 },
         mainhand  = { x = 0, y = 73,  w = 200, h = 12, show = true,  flip = false,
-                      bg = { 0, 0, 0, 0.8 }, textSize = 10 },
-        offhand   = { x = 0, y = 60,  w = 200, h = 12, show = true,  flip = false,
-                      bg = { 0, 0, 0, 0.8 }, textSize = 10 },
-        ranged    = { x = 0, y = 47,  w = 200, h = 12, show = true,  flip = false,
-                      bg = { 0, 0, 0, 0.8 }, textSize = 10 },
-        distance  = { x = 0, y = 34,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 10 },
+        offhand   = { x = 0, y = 60,  w = 200, h = 12, show = true,  flip = false,
+                      bg = { 0, 0, 0, 0.5 }, textSize = 10 },
+        ranged    = { x = 0, y = 47,  w = 200, h = 12, show = true,  flip = false,
+                      bg = { 0, 0, 0, 0.5 }, textSize = 10 },
+        distance  = { x = 0, y = 34,  w = 200, h = 12, show = true,  flip = false,
+                      bg = { 0, 0, 0, 0 },   textSize = 10 },
         secondary = { x = 0, y = 21,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 10 },
         extras    = { x = 0, y = 8,   w = 200, h = 8,  show = true,  flip = false,
@@ -313,6 +313,42 @@ OB.profileMigrations = {
         if d.outColor then d.tooFarColor = d.outColor end
 
         d.inColor, d.nearColor, d.outColor, d.dim = nil, nil, nil, nil
+    end },
+
+    --[[ One background for every bar: black at 50%.
+
+         The three swing bars shipped at 80% and everything else at 50%, for no
+         reason anyone recorded -- the darker trough presumably read better under
+         a thin bar at some point. It reads as inconsistency now.
+
+         The distance readout goes fully transparent instead. It is always full
+         and coloured by state, so its background can only ever be seen through a
+         translucent state colour, where it muddies the one thing the bar is for.
+
+         Applied by constraint 29: only a value that still *equals the old
+         default* is rewritten. Anyone who picked their own background keeps it,
+         because that one was a choice and these were not. ]]--
+    { 7, function(p)
+        if not p.slots then return end
+
+        -- a colour is only "untouched" if every channel still matches
+        local function isDefault(bg, r, g, b, a)
+            if type(bg) ~= "table" then return false end
+            return bg[1] == r and bg[2] == g and bg[3] == b and bg[4] == a
+        end
+
+        local swing = { "mainhand", "offhand", "ranged" }
+        for i = 1, table.getn(swing) do
+            local bar = p.slots[swing[i]]
+            if bar and isDefault(bar.bg, 0, 0, 0, 0.8) then
+                bar.bg = { 0, 0, 0, 0.5 }
+            end
+        end
+
+        local distance = p.slots.distance
+        if distance and isDefault(distance.bg, 0, 0, 0, 0.5) then
+            distance.bg = { 0, 0, 0, 0 }
+        end
     end },
 }
 

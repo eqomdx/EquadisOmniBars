@@ -965,6 +965,46 @@ end
 
 check(_G["EqOBOccupant"] == nil, "there is no occupant dropdown any more")
 
+--[[ Move Bars Together and Allow Bar Overlap appear on the Bars page as well as
+     on General. They are one setting shown twice, not a per-bar setting, so the
+     two copies have to move together -- and they do so without any syncing code,
+     because both read and write the same profile key.
+
+     What they cannot share is a frame name: two frames with one global name
+     means the second silently displaces the first, which is what `mirror`
+     exists to prevent. ]]--
+local joinGeneral = _G["EqOBCheck_global_x_join"]
+local joinBars = _G["EqOBCheck_global_x_join_bars"]
+
+check(joinGeneral ~= nil, "the General page has Move Bars Together")
+check(joinBars ~= nil, "and the Bars page has its own copy")
+check(joinGeneral ~= joinBars, "which is a different frame, not the same one twice")
+
+if joinGeneral and joinBars then
+    local before = OB.profile.join
+    eq(joinGeneral:GetChecked() and true or false, before and true or false,
+            "both start agreeing with the profile")
+    eq(joinBars:GetChecked() and true or false, before and true or false, "both of them")
+
+    -- ticking the copy writes the one shared key. The stub does not toggle a
+    -- CheckButton on click the way the client does, so the state is set first.
+    joinBars:SetChecked(not before)
+    Stub.Click(joinBars)
+    eq(OB.profile.join, not before, "the mirrored copy writes the global setting")
+    eq(joinGeneral:GetChecked() and true or false, (not before) and true or false,
+            "and the original follows it with no syncing code")
+
+    -- and back, from the other side
+    joinGeneral:SetChecked(before)
+    Stub.Click(joinGeneral)
+    eq(OB.profile.join, before, "the original writes it too")
+    eq(joinBars:GetChecked() and true or false, before and true or false,
+            "and the copy follows")
+end
+
+check(_G["EqOBCheck_global_x_allowOverlap_bars"] ~= nil,
+        "Allow Bar Overlap is mirrored the same way")
+
 --[[ No single-select dropdown may set info.checked.
 
      1.12's AddButton shows a check when it is truthy and never hides one, and
@@ -1408,21 +1448,25 @@ near(rangeBar.fill.vertex[1], rangeCfg.inRangeColor[1], 0.01, "in range has its 
 readAt(range, 60)
 near(rangeBar.fill.vertex[1], rangeCfg.tooFarColor[1], 0.01, "and too far another")
 
--- closer reads as fuller, so the bar drains as the target walks away
-readAt(range, 0)
-near(rangeBar.fill.width, rangeBar:GetWidth(), 0.5, "adjacent fills the bar")
-readAt(range, 20.5)
-near(rangeBar.fill.width, rangeBar:GetWidth() * 0.5, 0.5,
-        "half the maximum range is half a bar")
-readAt(range, 80)
-check(not rangeBar.fill.shown, "past the maximum the bar is empty, not negative")
+--[[ **Always full**, in every state and at every distance. The colour is the
+     entire reading.
 
--- the dead zone edge is a fixed point, so it is a tick rather than a hue change
+     An earlier draft drained the fill in proportion to distance. It looked
+     informative and was not: at the moment the answer matters -- crossing in or
+     out of range -- the fill is at its smallest and the colour has already said
+     it. A bar that is sometimes a block of colour and sometimes a partial fill
+     is two readouts wearing one rectangle. ]]--
+for _, yards in ipairs({ 0, 3, 20, 41, 80 }) do
+    readAt(range, yards)
+    near(rangeBar.fill.width, rangeBar:GetWidth(), 0.5,
+            "the bar is full at " .. yards .. " yards")
+    check(rangeBar.fill.shown, "and drawn at " .. yards .. " yards")
+end
+
+-- nothing drains, so there is no crossing for a dead zone tick to mark
 readAt(range, 20)
-check(rangeBar.ticks and rangeBar.ticks[1] and rangeBar.ticks[1].shown,
-        "the dead zone edge is marked")
-near(rangeBar.ticks[1].points[1][4], rangeBar:GetWidth() * (1 - 9 / 41), 0.5,
-        "at the point the fill crosses it")
+check(not (rangeBar.ticks and rangeBar.ticks[1] and rangeBar.ticks[1].shown),
+        "no tick is drawn, because nothing moves past it")
 
 --[[ No target at zero opacity takes the whole bar away, background included,
      rather than leaving an empty trough -- which is the thing that reads as a
@@ -1686,7 +1730,7 @@ OB = boot("ROGUE", 3, { savedVariables = {
     } },
 } })
 
-eq(OB.profile.schema, 6, "an old profile is migrated forward")
+eq(OB.profile.schema, 7, "an old profile is migrated forward")
 
 --[[ `hide` became `show`, inverted. A schema-2 profile carries no `show` at all,
      so the default supplies one and the migration has to overwrite it from the
@@ -1791,6 +1835,51 @@ OB.profile.slots.mainhand.show = false
 local kept = EquadisOmniBarsDB
 OB = boot("WARRIOR", 1, { name = "Upgrader", savedVariables = kept })
 eq(OB.profile.slots.mainhand.show, false, "a deliberate choice made since is kept")
+
+--[[ One background for every bar: black at 50%, and the distance readout
+     transparent because it is always full and coloured, so its background can
+     only ever muddy the state colour.
+
+     Constraint 29 applied properly this time: only a value that still equals the
+     old shipped default is rewritten. The swing bars shipped at 80% and nobody
+     chose that; a background somebody picked themselves is left alone. ]]--
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3, { name = "Backgrounds", savedVariables = {
+    version = 1,
+    migrated = { roguebars = true },
+    chars = { ["Turtle WoW - Backgrounds"] = "Default" },
+    profiles = { Default = {
+        schema = 6,
+        slots = {
+            mainhand  = { bg = { 0, 0, 0, 0.8 } },   -- the old default
+            offhand   = { bg = { 0, 0, 0, 0.8 } },   -- likewise
+            ranged    = { bg = { 0.2, 0.4, 0.6, 1 } },  -- a picked colour
+            distance  = { bg = { 0, 0, 0, 0.5 } },   -- the old default
+            health    = { bg = { 0, 0, 0, 0.5 } },   -- already correct
+        },
+    } },
+} })
+
+near(OB.profile.slots.mainhand.bg[4], 0.5, 0.001, "an untouched swing background normalises")
+near(OB.profile.slots.offhand.bg[4], 0.5, 0.001, "both of them")
+near(OB.profile.slots.distance.bg[4], 0, 0.001, "and the distance readout goes transparent")
+near(OB.profile.slots.health.bg[4], 0.5, 0.001, "one already correct is untouched")
+
+near(OB.profile.slots.ranged.bg[1], 0.2, 0.001, "a background somebody picked is left alone")
+near(OB.profile.slots.ranged.bg[4], 1, 0.001, "opacity included")
+
+-- and every shipped default now agrees
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+for i = 1, table.getn(OB.barOrder) do
+    local id = OB.barOrder[i]
+    local bg = OB.profile.slots[id].bg
+    local want = 0.5
+    if id == "distance" then want = 0 end
+
+    near(bg[1] + bg[2] + bg[3], 0, 0.001, id .. " ships black")
+    near(bg[4], want, 0.001, id .. " ships at the right opacity")
+end
 
 -- ---------------------------------------------------------------------------
 -- 28. the panel fails one control at a time

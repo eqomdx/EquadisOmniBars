@@ -191,18 +191,27 @@ OB.widgets = {}
 --[[ Scope, module and key together, so a slot's "flip" and a module's "flip"
      cannot collide the way a single flat key would.
 
+     `mirror` is for a row that deliberately appears twice -- the same setting
+     offered on two pages, so it is to hand wherever you happen to be. Both
+     copies read and write the identical config key; only their identity differs,
+     because two frames cannot share a global name in 1.12 and the second would
+     silently displace the first.
+
      Exposed on the namespace as well as kept local, because the self-test walks
      OB.optionIndex and asks whether each descriptor actually grew a control --
      which is the panel bug's *symptom* rather than its cause, and so catches the
      next one whatever causes it. ]]--
 function OB.WidgetKey(w)
-    return w.scope .. ":" .. (w.module or "") .. ":" .. w.key
+    local key = w.scope .. ":" .. (w.module or "") .. ":" .. w.key
+    if w.mirror then key = key .. "@" .. w.mirror end
+    return key
 end
 
 local widgetKey = OB.WidgetKey
 
 local function uniqueName(prefix, w)
     local name = prefix .. w.scope .. "_" .. (w.module or "x") .. "_" .. w.key
+    if w.mirror then name = name .. "_" .. w.mirror end
     return (string.gsub(name, "[^%w_]", "_"))
 end
 
@@ -841,6 +850,23 @@ local slotGeometry = {
     { "Background Color", "bg", "color", true },
 }
 
+--[[ Two General settings, repeated on the Bars page.
+
+     They are *not* per bar and are not meant to look it: both write the same
+     profile-wide key the General page writes, so ticking either copy moves the
+     other. They are here because they are the two settings you reach for while
+     dragging a bar, and walking back to General to find them breaks the loop you
+     are in.
+
+     The `@global:` prefix retargets the scope -- the same mechanism that puts a
+     druid's current-form colour on the panel -- and `mirror` keeps the duplicate
+     from colliding with the original's frame name. ]]--
+local barsMirror = {
+    { "Movement", "__h_move_bars", "header" },
+    { "Move Bars Together", "@global:join", "boolean" },
+    { "Allow Bar Overlap", "@global:allowOverlap", "boolean" },
+}
+
 -- ---------------------------------------------------------------------------
 -- the flat index
 --
@@ -1072,6 +1098,16 @@ local function buildBarsPage(page)
 
     for i = 1, table.getn(slotGeometry) do
         buildRow(page, describeRow(slotGeometry[i], "slot", nil), 1)
+    end
+
+    --[[ Marked as mirrors so they get their own frame names. They are otherwise
+         identical to the General rows -- same key, same scope, same write path --
+         which is what keeps the two copies in step: ticking one writes the
+         profile and refreshes the panel, and the other re-reads it. ]]--
+    for i = 1, table.getn(barsMirror) do
+        local w = describeRow(barsMirror[i], "slot", nil)
+        w.mirror = "bars"
+        buildRow(page, w, 1)
     end
 
     --[[ Restack is offered rather than done automatically. Automatic reflow is
