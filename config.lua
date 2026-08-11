@@ -53,7 +53,7 @@ end
      automatically for a rogue would move a hunter's bars. Restack Occupied Bars
      does it on demand -- see constraint 15. ]]--
 OB.defaults = {
-    schema = 4,
+    schema = 5,
 
     -- visibility
     show = true,
@@ -258,6 +258,34 @@ OB.profileMigrations = {
             p.modules.health.lowThreshold = nil
             p.modules.health.lowColor = nil
         end
+    end },
+
+    --[[ Reveal the Distance bar.
+
+         Schema 4 inverted `hide` into `show` faithfully, and faithfully was the
+         bug: `aux` -- the slot that became Distance -- *shipped* hidden, so
+         every profile carried `hide = true` on it without anyone having chosen
+         that. The flip turned a shipped default into what looks like a decision,
+         and the result was a Distance bar that came out of the upgrade switched
+         off for every existing user while defaulting to on for new ones.
+
+         Only Distance is affected. `secondary` did not exist before schema 3 and
+         arrives from the defaults; every other bar shipped visible.
+
+         This overrides a saved value, which is normally wrong. It is right here
+         for the same reason the schema 2 step was: in the version that wrote it,
+         the readout in that slot was hidden out of the box and the handover notes
+         told you to run a command to reveal it, so `hide = true` means "never
+         touched it" rather than "turned it off". The window in which somebody
+         could have deliberately switched Distance off *since* the flip is a
+         single version, and one release of a HUD nobody else runs.
+
+         The general lesson, which is worth more than this fix: **inverting a key
+         inverts defaults that were never chosen along with the choices.** When a
+         migration flips a boolean, ask what the old default was, not just what
+         the saved value is. ]]--
+    { 5, function(p)
+        if p.slots and p.slots.distance then p.slots.distance.show = true end
     end },
 }
 

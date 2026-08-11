@@ -1567,7 +1567,7 @@ OB = boot("ROGUE", 3, { savedVariables = {
     } },
 } })
 
-eq(OB.profile.schema, 4, "an old profile is migrated forward")
+eq(OB.profile.schema, 5, "an old profile is migrated forward")
 
 --[[ `hide` became `show`, inverted. A schema-2 profile carries no `show` at all,
      so the default supplies one and the migration has to overwrite it from the
@@ -1623,6 +1623,55 @@ local tuned = EquadisOmniBarsDB
 tuned.profiles.Default.slots.health.y = 400
 OB = boot("ROGUE", 3, { savedVariables = tuned })
 eq(OB.profile.slots.health.y, 400, "a current profile is not restacked again")
+
+--[[ The Distance bar survives the upgrade switched on.
+
+     This is the regression the schema 5 step exists for, and it is worth a test
+     of its own because the migration that caused it was *correct* in isolation:
+     `aux` shipped hidden, so inverting `hide` into `show` faithfully produced
+     `show = false` -- turning a shipped default into what looks like a decision.
+     Every existing profile lost the Distance bar while new ones kept it.
+
+     Booted from a profile shaped exactly the way v0.2 wrote one, rather than a
+     synthetic fragment, because the whole failure was in what the *defaults* of
+     that version happened to be. ]]--
+EquadisOmniBarsDB = nil
+OB = boot("WARRIOR", 1, { name = "Upgrader", savedVariables = {
+    version = 1,
+    migrated = { roguebars = true },
+    chars = { ["Turtle WoW - Upgrader"] = "Default" },
+    profiles = { Default = {
+        schema = 2,
+        assign = { ["*"] = { points = "auto", swingB = "auto", swingA = "auto",
+                             resource = "auto", health = "auto", aux = "auto" } },
+        slots = {
+            points   = { x = 0, y = 115, w = 200, h = 8,  hide = false },
+            swingB   = { x = 0, y = 106, w = 200, h = 12, hide = false },
+            swingA   = { x = 0, y = 93,  w = 200, h = 12, hide = false },
+            resource = { x = 0, y = 80,  w = 200, h = 24, hide = false },
+            health   = { x = 0, y = 55,  w = 200, h = 16, hide = false },
+            aux      = { x = 0, y = 38,  w = 200, h = 12, hide = true },
+        },
+    } },
+} })
+
+eq(OB.profile.slots.distance.show, true,
+        "the Distance bar is on after upgrading from a v0.2 profile")
+
+-- every other bar came through switched on too, since all of them shipped visible
+local anyOff
+for i = 1, table.getn(OB.barOrder) do
+    local id = OB.barOrder[i]
+    if not OB.profile.slots[id].show then anyOff = id end
+end
+check(anyOff == nil, "and no bar came out of the upgrade switched off",
+        "found " .. tostring(anyOff))
+
+-- a bar the user really did switch off after the flip stays off
+OB.profile.slots.mainhand.show = false
+local kept = EquadisOmniBarsDB
+OB = boot("WARRIOR", 1, { name = "Upgrader", savedVariables = kept })
+eq(OB.profile.slots.mainhand.show, false, "a deliberate choice made since is kept")
 
 -- ---------------------------------------------------------------------------
 -- 28. the panel fails one control at a time
