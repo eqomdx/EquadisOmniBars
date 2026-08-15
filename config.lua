@@ -38,12 +38,18 @@ end
 -- defaults
 -- ---------------------------------------------------------------------------
 
---[[ Bar geometry: offsets from the container's TOPLEFT with positive Y upward,
-     stacked in OB.barOrder with a 1px gap, health at the top.
+--[[ Bar geometry: the **centre** of each bar, as an offset from the container,
+     with positive Y upward. Stacked in OB.barOrder with a 1px gap, health at the
+     top. The spans below are the edges those centres produce:
 
        health 115..99     resource 98..74    mainhand 73..61
        offhand 60..48     ranged 47..35      distance 34..22
        secondary 21..9    extras 8..0
+
+     x = 0 is therefore the middle of the screen, which is where a HUD under your
+     character wants to start. It used to be the bar's left edge, so x = 0 put a
+     200-wide bar half its width off to the right and every layout began by
+     typing a number nobody should have had to work out.
 
      The panel lists them in this same order, so the list and the screen agree
      and there is nothing to reconcile.
@@ -53,7 +59,7 @@ end
      automatically for a rogue would move a hunter's bars. Restack Occupied Bars
      does it on demand -- see constraint 15. ]]--
 OB.defaults = {
-    schema = 7,
+    schema = 8,
 
     -- visibility
     show = true,
@@ -84,21 +90,21 @@ OB.defaults = {
     modulesEnabled = {},
 
     slots = {
-        health    = { x = 0, y = 115, w = 200, h = 16, show = true,  flip = false,
+        health    = { x = 0, y = 107, w = 200, h = 16, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 11 },
-        resource  = { x = 0, y = 98,  w = 200, h = 24, show = true,  flip = false,
+        resource  = { x = 0, y = 86,  w = 200, h = 24, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 12 },
-        mainhand  = { x = 0, y = 73,  w = 200, h = 12, show = true,  flip = false,
+        mainhand  = { x = 0, y = 67,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 10 },
-        offhand   = { x = 0, y = 60,  w = 200, h = 12, show = true,  flip = false,
+        offhand   = { x = 0, y = 54,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 10 },
-        ranged    = { x = 0, y = 47,  w = 200, h = 12, show = true,  flip = false,
+        ranged    = { x = 0, y = 41,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 10 },
-        distance  = { x = 0, y = 34,  w = 200, h = 12, show = true,  flip = false,
+        distance  = { x = 0, y = 28,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0 },   textSize = 10 },
-        secondary = { x = 0, y = 21,  w = 200, h = 12, show = true,  flip = false,
+        secondary = { x = 0, y = 15,  w = 200, h = 12, show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 10 },
-        extras    = { x = 0, y = 8,   w = 200, h = 8,  show = true,  flip = false,
+        extras    = { x = 0, y = 4,   w = 200, h = 8,  show = true,  flip = false,
                       bg = { 0, 0, 0, 0.5 }, textSize = 12 },
     },
 
@@ -348,6 +354,31 @@ OB.profileMigrations = {
         local distance = p.slots.distance
         if distance and isDefault(distance.bg, 0, 0, 0, 0.5) then
             distance.bg = { 0, 0, 0, 0 }
+        end
+    end },
+
+    --[[ x and y became the bar's **centre** rather than its top-left corner.
+
+         Y always converts, so every bar stays exactly where it is on screen: a
+         top edge at 115 with a height of 16 is a centre at 107.
+
+         X does not, and this is constraint 29 again. x = 0 was the shipped
+         default for every bar and, under the old corner meaning, put a 200-wide
+         bar half its width right of centre -- which is the thing that prompted
+         the change. Nobody chose that, so an untouched 0 is left at 0 and the bar
+         lands where the setting always claimed it would: the middle. An x
+         somebody actually set was a considered position, so it converts and the
+         bar does not move.
+
+         The visible result of an upgrade is therefore: nothing moves vertically,
+         and a layout still on the default horizontal position slides left to be
+         properly centred. ]]--
+    { 8, function(p)
+        if not p.slots then return end
+
+        for id, bar in pairs(p.slots) do
+            bar.y = OB.ClampCoord(bar.y - (bar.h / 2))
+            if bar.x ~= 0 then bar.x = OB.ClampCoord(bar.x + (bar.w / 2)) end
         end
     end },
 }

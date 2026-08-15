@@ -331,7 +331,7 @@ section("range backend", function(t)
     local cfg = m:Config()
 
     -- not "did it probe once" but "would it still choose this now"
-    t:ok(m.backend.Available(cfg) and true or false,
+    t:ok(m.backend.Available(m) and true or false,
             "the " .. m.backend.id .. " backend is no longer available")
 
     if cfg.backend ~= "auto" then
@@ -341,10 +341,14 @@ section("range backend", function(t)
     end
 
     local note = m.backend.name
-    if type(UnitXP) == "function" then
-        note = note .. " (UnitXP present)"
+    if type(GetUnitDistance) == "function" then
+        note = note .. " (Nampower exact hostile distance present)"
+    elseif OB.HasUnitXP and OB.HasUnitXP() then
+        note = note .. " (UnitXP exact hostile distance present)"
+    elseif type(UnitPosition) == "function" then
+        note = note .. " (SuperWoW exact friendly distance only)"
     else
-        note = note .. " (no UnitXP -- bands is the best available)"
+        note = note .. " (no exact-distance API)"
     end
     if not OB.bound.distance then note = note .. ", bar not drawn" end
 
@@ -485,4 +489,79 @@ end
 OB.commands.selftest = {
     help = "check the addon against this client, not against the test stub",
     Run = function(args) OB.RunSelfTest() end,
+}
+
+--[[ A deliberately narrow runtime trace for the distance readout.
+
+     The offline suite can prove that fallback order and drawing are internally
+     consistent, but it cannot tell us what an injected API returns on this
+     particular client build. Keep this as a command instead of permanent chat
+     spam: target the unit that fails, run it once, and every value involved in
+     choosing the yard count is visible. ]]--
+local function positionResult(token)
+    if type(UnitPosition) ~= "function" then return "API missing" end
+    if not token then return "no token" end
+
+    local ok, x, y, z = pcall(UnitPosition, token)
+    if not ok then return "ERROR " .. tostring(x) end
+    if type(x) ~= "number" or type(y) ~= "number" then
+        return "nil (" .. tostring(x) .. ", " .. tostring(y) .. ", "
+                .. tostring(z) .. ")"
+    end
+
+    return tostring(x) .. ", " .. tostring(y) .. ", " .. tostring(z)
+end
+
+function OB.RunRangeDebug()
+    local m = OB.modules.distance
+    if not m then
+        OB.Raw(RED .. "Range debug: distance module is not registered")
+        return
+    end
+
+    local exists, superGuid = UnitExists("target")
+    local nampowerGuid
+    if type(GetUnitGUID) == "function" then
+        local ok, value = pcall(GetUnitGUID, "target")
+        if ok then nampowerGuid = value end
+    end
+    local guid = superGuid or nampowerGuid
+
+    OB.Raw(GREY .. "OmniBars range debug " .. WHITE .. OB.version)
+    OB.Raw("  target: exists=" .. tostring(exists)
+            .. " attackable=" .. tostring(UnitCanAttack("player", "target")))
+    OB.Raw("  GUID: UnitExists=" .. tostring(superGuid)
+            .. " GetUnitGUID=" .. tostring(nampowerGuid))
+    OB.Raw("  UnitPosition player: " .. positionResult("player"))
+    OB.Raw("  UnitPosition target: " .. positionResult("target"))
+    OB.Raw("  UnitPosition GUID: " .. positionResult(guid))
+
+    local nativeDistance = "API missing"
+    if type(GetUnitDistance) == "function" then
+        local ok, value = pcall(GetUnitDistance, "target")
+        nativeDistance = ok and tostring(value) or ("ERROR " .. tostring(value))
+    end
+    OB.Raw("  GetUnitDistance target: " .. nativeDistance)
+
+    local exact = OB.UnitDistance("target")
+    OB.Raw("  exact distance: " .. tostring(exact))
+
+    local rangeResult = "API/spell unavailable"
+    if type(IsSpellInRange) == "function" and (m.spellId or m.spell) then
+        local ok, value = pcall(IsSpellInRange, m.spellId or m.spell, "target")
+        rangeResult = ok and tostring(value) or ("ERROR " .. tostring(value))
+    end
+    OB.Raw("  weapon spell: " .. tostring(m.spell) .. " id="
+            .. tostring(m.spellId) .. " good=" .. tostring(m.minRange)
+            .. "-" .. tostring(m.maxRange) .. " IsSpellInRange=" .. rangeResult)
+
+    local state, yards = m:Read()
+    OB.Raw("  selected=" .. tostring(m.backend and m.backend.id)
+            .. " answered=" .. tostring(m.answered and m.answered.id)
+            .. " state=" .. tostring(state) .. " yards=" .. tostring(yards))
+end
+
+OB.commands.rangedebug = {
+    help = "report every client value used by the distance readout",
+    Run = function(args) OB.RunRangeDebug() end,
 }

@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.4.2 — in development.**
+> **Version 0.5.0 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -130,10 +130,12 @@ warrior's, because Auto Shot and Shoot Gun are different spells with different
 ranges.
 
 How precisely it can answer depends on your client. With **Nampower** it uses the
-game's own range check, including the real minimum range. With **SuperWoW** it
-also gets a true distance and shows the yardage on the bar. With neither, it falls
-back to the game's coarse interaction distances, or to one action bar slot you
-nominate.
+game's own range check, including the real minimum range. **SuperWoW** adds exact
+yardage for friendly units. Exact hostile yardage comes from Nampower when it
+exposes `GetUnitDistance`, or from **UnitXP_SP3**. Without an exact source,
+hostile targets still get the correct range state but not a numeric yardage. With
+none of these extensions it falls back to the game's coarse interaction
+distances, or to one action bar slot you nominate.
 
 Two settings only matter when the above cannot answer, and on most installs they
 never come into play:
@@ -213,9 +215,15 @@ whether they may then stack, and border art counts as part of a bar.
 Vanilla 1.12 client APIs only, Lua 5.0, no libraries, no dependencies, no
 localisation requirements.
 
-SuperWoW is optional. If its `UnitXP` is present the range readout uses it and
-becomes a real distance; if not, everything still works and the readout falls
-back to bands. Nothing in the addon requires a client mod.
+SuperWoW and UnitXP_SP3 are optional. SuperWoW's `UnitPosition` supplies exact
+friendly-unit coordinates; it does not expose hostile-unit coordinates, even
+when given a GUID. OmniBars also supports `GetUnitDistance(unitToken)` from a
+Nampower build that exposes its existing object-manager positions. UnitXP_SP3
+remains a compatible exact hostile-distance source. The yards label is always
+one exact current distance such as `23y`. The equipped attack's complete usable
+range is shown separately as `[8-30y]`; both labels can be hidden or swapped
+between the left and right sides. Stock Nampower 4.6.2 still provides the hostile
+range state, but not the exact-yard label.
 
 If RogueBars is enabled at the same time you will see two sets of bars, because
 OmniBars supersedes it. It says so once in chat rather than refusing to load.

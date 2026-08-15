@@ -19,8 +19,9 @@
   the range of the auto-attack that weapon uses. What can answer that depends on
   which client mods are loaded, so it is probed best-first:
 
-    precise   a true distance (SuperWoW's UnitPosition, or UnitXP) plus the real
-              min and max from Nampower -- every state, and a yardage readout
+    precise   a true distance (Nampower's optional GetUnitDistance extension,
+              UnitXP, or SuperWoW for friendly units) plus the real min and max
+              from Nampower -- every state, and a yardage readout
     spell     Nampower's IsSpellInRange -- the engine's own answer, but boolean
     action    IsActionInRange on a watched action slot -- likewise boolean
     bands     CheckInteractDistance -- always available, always coarse
@@ -30,12 +31,12 @@
   unable to shoot *and* within melee reach means you are standing on top of the
   target, which is the dead zone.
 
-  One warning for whoever reads this next. **Do not assume a client mod is
-  present because another addon references it.** Phase 2 recorded UnitXP as
-  "confirmed present on this install" on the strength of SuperCleveRoidMacros
-  calling it; it is not in dlls.txt and never was, so the precise backend never
-  ran once and every reading came from `bands` for three versions. Nampower and
-  SuperWoW *are* loaded, which is why they are what this file reaches for.
+  One warning for whoever reads this next. **Do not treat UnitPosition as an
+  exact hostile-distance API.** SuperWoW deliberately exposes coordinates for
+  friendly units only. UnitXP was loaded on this installation when hostile
+  yardage worked, but has since been disabled. Stock Nampower gives the hostile
+  in/out answer; a Nampower build exposing GetUnitDistance supplies the exact
+  hostile number without UnitXP.
 ]]--
 
 local OB = EquadisOmniBars
@@ -124,26 +125,52 @@ end
 -- is a call into nothing.
 -- ---------------------------------------------------------------------------
 
+--[[ Whether UnitXP_SP3's command dispatcher is present.
+
+     Vanilla already owns the global name `UnitXP`, so checking only whether it
+     is a function mistakes the ordinary experience API for the client mod. SP3
+     deliberately accepts `nop` as a capability probe; the stock function
+     rejects that call. ]]--
+function OB.HasUnitXP()
+    if type(UnitXP) ~= "function" then return false end
+    return pcall(UnitXP, "nop", "nop") and true or false
+end
+
 --[[ A true distance in yards, or nil.
 
-     SuperWoW's UnitPosition gives world coordinates, so this is honest
-     three-dimensional Pythagoras rather than an approximation. UnitXP answers
-     directly where it exists. ]]--
+     A Nampower build with GetUnitDistance is preferred because it uses the
+     object manager already maintained by Nampower and supports hostile units.
+     UnitXP remains compatible. SuperWoW's UnitPosition is the final fallback,
+     but deliberately returns coordinates for friendly units only. ]]--
 function OB.UnitDistance(unit)
-    if type(UnitPosition) == "function" then
-        local ok, x1, y1, z1 = pcall(UnitPosition, "player")
-        if ok and x1 then
-            local ok2, x2, y2, z2 = pcall(UnitPosition, unit)
-            if ok2 and x2 then
-                local dx, dy, dz = x2 - x1, y2 - y1, z2 - z1
-                return math.sqrt((dx * dx) + (dy * dy) + (dz * dz))
-            end
-        end
+    if type(GetUnitDistance) == "function" then
+        local ok, yards = pcall(GetUnitDistance, unit)
+        if ok and type(yards) == "number" and yards >= 0 then return yards end
     end
 
-    if type(UnitXP) == "function" then
+    if OB.HasUnitXP() then
         local ok, yards = pcall(UnitXP, "distanceBetween", "player", unit)
-        if ok and type(yards) == "number" then return yards end
+        if ok and type(yards) == "number" and yards >= 0 then return yards end
+    end
+
+    local function position(token)
+        if not token then return nil, nil, nil end
+
+        local ok, x, y, z = pcall(UnitPosition, token)
+        if not ok or type(x) ~= "number" or type(y) ~= "number" then
+            return nil, nil, nil
+        end
+        return x, y, z or 0
+    end
+
+    if type(UnitPosition) == "function" then
+        local x1, y1, z1 = position("player")
+        local x2, y2, z2 = position(unit)
+
+        if x1 and x2 then
+            local dx, dy, dz = x2 - x1, y2 - y1, z2 - z1
+            return math.sqrt((dx * dx) + (dy * dy) + (dz * dz))
+        end
     end
 
     return nil
@@ -160,6 +187,24 @@ end
      The values are raw DBC, taken before the target's combat reach is added, so
      they disagree with the engine's own boolean check by a yard or two against a
      large target. Good enough to draw with; the boolean is the authority. ]]--
+--[[ Is the unit in line of sight, or nil if this client cannot tell.
+
+     UnitXP SP3's `inSight`, which SuperCleveRoidMacros uses the same way
+     (Conditionals.lua:7743). It is a *different* client mod from SuperWoW and
+     from Nampower, and it is not installed on the development machine -- so the
+     option that uses this ships off and says so when switched on without it.
+
+     nil and false are deliberately different: nil is "cannot tell", false is
+     "definitely blocked". Treating the first as the second would put a wall in
+     front of every target on a client that simply has no opinion. ]]--
+function OB.InSight(unit)
+    if type(UnitXP) ~= "function" then return nil end
+
+    local ok, sight = pcall(UnitXP, "inSight", "player", unit)
+    if not ok or type(sight) ~= "boolean" then return nil end
+    return sight
+end
+
 function OB.SpellRange(name)
     if type(GetSpellIdForName) ~= "function" then return nil end
     if type(GetSpellRecField) ~= "function" then return nil end
@@ -221,12 +266,22 @@ OB.rangeBackends.spell = {
     id = "spell",
     name = "Spell Range",
 
+    --[[ A spell **name** is enough. This used to demand `spellId`, which only
+         exists when GetSpellRecField and GetSpellRangeData both answer -- a
+         different, newer part of Nampower than IsSpellInRange itself. So an
+         install with the range check but not the range *data* never used it, fell
+         all the way to CheckInteractDistance, and reported every hostile target
+         as out of range, because CheckInteractDistance cannot see one.
+
+         IsSpellInRange takes a name or an id, so the id is a bonus rather than a
+         requirement. Needing a strictly newer API than the one you are about to
+         call is the shape of mistake to watch for. ]]--
     Available = function(m)
-        return type(IsSpellInRange) == "function" and m.spellId ~= nil
+        return type(IsSpellInRange) == "function" and m.spell ~= nil
     end,
 
     Read = function(m)
-        local ok, result = pcall(IsSpellInRange, m.spellId, "target")
+        local ok, result = pcall(IsSpellInRange, m.spellId or m.spell, "target")
         if not ok or result == nil or result == -1 then return nil, nil end
         if result == 1 then return "inrange", nil end
         return closeOrFar(m), nil
@@ -281,6 +336,16 @@ OB.rangeBackends.bands = {
         end
 
         if CheckInteractDistance("target", 1) then return "inrange", nil end
+
+        --[[ Nothing answered. For a friendly target that genuinely means far;
+             for anything you can attack it means CheckInteractDistance cannot
+             see it at all, which is true of every hostile mob in the game.
+
+             Both still read as "too far", because there is no better answer to
+             give -- but the second case is a capability gap rather than a
+             reading, and saying so once is the difference between "this addon is
+             broken on mobs" and "this needs Nampower". ]]--
+        if UnitCanAttack("player", "target") then m.blindToHostiles = true end
         return "toofar", nil
     end,
 }
@@ -311,8 +376,16 @@ local M = OB.RegisterModule({
         deadZone = 0,
 
         showText = true,
+        showGoodRange = true,
+        swapText = false,
         actionSlot = 0,
         capture = false,
+
+        --[[ Off, because it needs UnitXP SP3 and most installs do not have it.
+             Switching it on without that says so once rather than doing nothing
+             quietly -- a setting that appears to work and does not is worse than
+             one that is honestly unavailable. ]]--
+        losCheck = false,
 
         inRangeColor = { 0.20, 0.80, 0.25, 1 },
         tooCloseColor = { 0.95, 0.55, 0.10, 1 },
@@ -335,6 +408,9 @@ local M = OB.RegisterModule({
         { "Too Far Color", "tooFarColor", "color", true },
         { "No Target Color", "noTargetColor", "color", true },
         { "Show Yards", "showText", "boolean" },
+        { "Show Good Range", "showGoodRange", "boolean" },
+        { "Swap Text Sides", "swapText", "boolean" },
+        { "Out Of Range Without Line Of Sight", "losCheck", "boolean" },
         { "Fallback Maximum Range", "maxRange", "slider", 5, 100, 1 },
         { "Fallback Dead Zone", "deadZone", "slider", 0, 20, 1 },
         { "Watched Action Slot", "actionSlot", "slider", 0, 120, 1 },
@@ -482,9 +558,27 @@ end
 -- reading
 -- ---------------------------------------------------------------------------
 
+--[[ The current state, and a distance when one can be measured.
+
+     **A backend that cannot answer must not read as "no target".** They were the
+     same nil, and that is the whole of this bug: the moment the preferred backend
+     declined for a particular target -- IsSpellInRange answering -1, UnitPosition
+     answering nothing for that unit -- the bar fell to the no-target colour while
+     something was plainly targeted.
+
+     So a decline falls through to the weaker backends rather than giving up.
+     `bands` is always available and always answers, so a target always produces a
+     state; nil now means only what it says.
+
+     Which backend actually answered is worth knowing, so the self-test can say
+     when the preferred one is quietly never used. ]]--
 function M:Read()
     if OB.testMode then
-        local yards = OB.test.range or 0
+        --[[ nil range is the preview's no-target phase, which exists so the
+             fourth colour is visible without dropping target. ]]--
+        local yards = OB.test.range
+        if not yards then return nil, nil end
+
         if (self.minRange or 0) > 0 and yards < self.minRange then
             return "tooclose", yards
         end
@@ -492,8 +586,72 @@ function M:Read()
         return "inrange", yards
     end
 
-    if not UnitExists("target") then return nil, nil end
-    return self.backend.Read(self)
+    if not UnitExists("target") then
+        self.answered = nil
+        return nil, nil
+    end
+
+    local state, yards = self.backend.Read(self)
+    if state then
+        self.answered = self.backend
+    else
+        for i = 1, table.getn(OB.rangeOrder) do
+            local backend = OB.rangeBackends[OB.rangeOrder[i]]
+            if backend ~= self.backend and backend.Available(self) then
+                state, yards = backend.Read(self)
+                if state then
+                    self.answered = backend
+                    break
+                end
+            end
+        end
+    end
+
+    if not state then
+        self.answered = nil
+        return nil, nil
+    end
+
+    --[[ Line of sight overrides everything: a target you cannot see is one you
+         cannot shoot, whatever the distance says. Applied after the backends
+         rather than inside them so it holds for all four.
+
+         Only when the client can actually tell. A nil answer means "no opinion",
+         not "blocked" -- see OB.InSight. ]]--
+    if self:Config().losCheck then
+        local sight = OB.InSight("target")
+
+        if sight == nil then
+            self:WarnNoLineOfSight()
+        elseif not sight then
+            return "toofar", yards
+        end
+    end
+
+    if self.blindToHostiles then self:WarnBlindToHostiles() end
+
+    return state, yards
+end
+
+--[[ Said once per session, not once per frame: both of these are conditions of
+     the client rather than events, so they are true continuously and a message
+     per reading would be ten a second. ]]--
+function M:WarnNoLineOfSight()
+    if self.warnedLos then return end
+    self.warnedLos = true
+
+    OB.Print("line of sight checking needs the UnitXP client mod, which is not"
+            .. " loaded here -- the setting is on but has nothing to ask.")
+end
+
+function M:WarnBlindToHostiles()
+    self.blindToHostiles = nil
+    if self.warnedHostile then return end
+    self.warnedHostile = true
+
+    OB.Print("this client can only measure range to friendly targets. Nampower"
+            .. " or a watched action slot (|cff69ccf0/eqob distance capture on|r)"
+            .. " covers hostile ones.")
 end
 
 function M:OnBind(slot)
@@ -539,6 +697,25 @@ function M:StateColor(state)
     return cfg.noTargetColor
 end
 
+--[[ Text has two independent jobs, matching the swing bars:
+
+       left    the exact current distance
+       right   the equipped attack's complete good range, in brackets
+
+     A boolean range API cannot invent an exact hostile distance. In that case
+     the left side stays empty; an interval belongs only on the right and must
+     never masquerade as the current yard counter. ]]--
+function M:YardsText()
+    if self.yards then return tostring(OB.Round(self.yards)) .. "y" end
+    return ""
+end
+
+function M:GoodRangeText()
+    if not self.maxRange then return "" end
+    return "[" .. tostring(OB.Round(self.minRange or 0)) .. "-"
+            .. tostring(OB.Round(self.maxRange)) .. "y]"
+end
+
 function M:OnStyle(slot)
     OB.SetBarColor(self.frame, self:StateColor(self.state))
 end
@@ -575,14 +752,22 @@ function M:OnDraw()
          colour has already told you. So the fill carries nothing and the whole
          bar carries the state.
 
-         The yardage still goes in the centre text, where a number belongs. ]]--
+         The yardage and good range use the left/right text pair, just like the
+         swing timer and weapon speed. ]]--
     OB.SetBarFill(bar, 1, slot.flip)
     OB.SetBarColor(bar, color)
 
-    if self.yards and cfg.showText then
-        bar.center:SetText(OB.Round(self.yards) .. "y")
+    local yardsText, goodRangeText = "", ""
+    if cfg.showText then yardsText = self:YardsText() end
+    if cfg.showGoodRange and self.state then goodRangeText = self:GoodRangeText() end
+
+    bar.center:SetText("")
+    if cfg.swapText then
+        bar.left:SetText(goodRangeText)
+        bar.right:SetText(yardsText)
     else
-        bar.center:SetText("")
+        bar.left:SetText(yardsText)
+        bar.right:SetText(goodRangeText)
     end
 
     -- the dead zone edge used to be ticked, marking where a draining fill would
@@ -652,22 +837,42 @@ M.onChange = {
 -- ---------------------------------------------------------------------------
 -- test mode
 --
--- Walk out past the maximum and back, so every state and both ends of the bar
--- are seen without needing a target.
+-- Walk out past the maximum, back in to nothing, then drop target for two
+-- seconds before starting again.
+--
+-- The hold is why the preview is worth having: without it the fourth colour is
+-- the one you can never see while setting the other three, because seeing it
+-- means dropping target and losing the preview you were looking at.
 -- ---------------------------------------------------------------------------
+
+local HOLD = 2
 
 function M:TestStart(now)
     OB.test.range = 0
     OB.test.rangeOut = true
+    OB.test.rangeHeld = nil
     OB.test.rangeAt = now
 end
 
 function M:TestStop()
     self.state, self.yards = nil, nil
+    OB.test.rangeHeld = nil
     self.nextPoll = 0
 end
 
 function M:TestStep(now)
+    --[[ The hold runs on its own clock rather than on the step interval, so its
+         length is two seconds however fast the sweep is stepping. ]]--
+    if OB.test.rangeHeld then
+        if (now - OB.test.rangeHeld) < HOLD then return end
+
+        OB.test.rangeHeld = nil
+        OB.test.range = 0
+        OB.test.rangeOut = true
+        OB.test.rangeAt = now
+        return
+    end
+
     if (now - (OB.test.rangeAt or 0)) < 0.1 then return end
     OB.test.rangeAt = now
 
@@ -680,11 +885,14 @@ function M:TestStep(now)
             OB.test.range = ceiling
             OB.test.rangeOut = false
         end
-    else
-        OB.test.range = OB.test.range - step
-        if OB.test.range <= 0 then
-            OB.test.range = 0
-            OB.test.rangeOut = true
-        end
+        return
+    end
+
+    OB.test.range = OB.test.range - step
+    if OB.test.range <= 0 then
+        -- back at nothing: drop target for a beat, which is the only way the
+        -- no-target colour appears in a preview
+        OB.test.range = nil
+        OB.test.rangeHeld = now
     end
 end

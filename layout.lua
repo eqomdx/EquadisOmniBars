@@ -63,8 +63,11 @@ function OB.ApplyPositions()
 
         if m and m.frame then
             local slot = OB.profile.slots[slotId]
+            --[[ Centre to centre. The container is 1x1, so its centre is the
+                 anchor point, and a bar at x = 0 sits centred on it -- which is
+                 the middle of the screen. ]]--
             m.frame:ClearAllPoints()
-            m.frame:SetPoint("TOPLEFT", OB.container, "TOPLEFT", slot.x, slot.y)
+            m.frame:SetPoint("CENTER", OB.container, "CENTER", slot.x, slot.y)
         end
     end
 
@@ -77,6 +80,34 @@ end
 -- ---------------------------------------------------------------------------
 -- collision
 -- ---------------------------------------------------------------------------
+
+--[[ A bar's four edges, from its **centre**.
+
+     `x` and `y` are the middle of the rectangle, not its top-left corner. That
+     is the whole reason this helper exists: half a dozen places used to write
+     `x .. x + w` and `y .. y - h` inline, which was only correct while the
+     coordinate meant a corner, and changing it meant finding every one of them.
+     There is one place now.
+
+     Centre coordinates were worth the change because **x = 0 is the middle of
+     the screen** with them, which is where anyone putting a HUD under their
+     character wants to start. Corner coordinates put x = 0 half a bar's width to
+     the right, so every layout began by typing a number nobody should have to
+     work out.
+
+     `pad` grows the rectangle by the border footprint, so border art
+     participates in collision rather than overlapping unnoticed. ]]--
+local function edgesOf(el, x, y, pad)
+    if x == nil then x = el.x end
+    if y == nil then y = el.y end
+    pad = pad or 0
+
+    local halfW, halfH = el.w / 2, el.h / 2
+    -- left, right, top, bottom
+    return x - halfW - pad, x + halfW + pad, y + halfH + pad, y - halfH - pad
+end
+
+OB.EdgesOf = edgesOf
 
 -- a slot only participates in collision when something is actually drawn in it
 local function slotActive(slotId)
@@ -100,15 +131,12 @@ function OB.SlotCollides(slotId, x, y)
     local pad = OB.BorderPad()
     local el = slots[slotId]
 
-    local aL, aR = x - pad, x + el.w + pad
-    local aT, aB = y + pad, y - el.h - pad
+    local aL, aR, aT, aB = edgesOf(el, x, y, pad)
 
     for i = 1, table.getn(OB.barOrder) do
         local otherId = OB.barOrder[i]
         if otherId ~= slotId and slotActive(otherId) then
-            local other = slots[otherId]
-            local bL, bR = other.x - pad, other.x + other.w + pad
-            local bT, bB = other.y + pad, other.y - other.h - pad
+            local bL, bR, bT, bB = edgesOf(slots[otherId], nil, nil, pad)
 
             if (aL < bR) and (aR > bL) and (aB < bT) and (aT > bB) then
                 return true
@@ -151,11 +179,14 @@ function OB.ResolveOverlap()
         local el = slots[order[i]]
         for j = 1, i - 1 do
             local above = slots[order[j]]
-            if ((el.x - pad) < (above.x + above.w + pad))
-                    and ((el.x + el.w + pad) > (above.x - pad))
-                    and ((el.y + pad) > (above.y - above.h - pad))
-                    and ((el.y - el.h - pad) < (above.y + pad)) then
-                local limit = above.y - above.h - (pad * 2)
+            local aL, aR, aT, aB = edgesOf(el, nil, nil, pad)
+            local bL, bR, bT, bB = edgesOf(above, nil, nil, pad)
+
+            if (aL < bR) and (aR > bL) and (aT > bB) and (aB < bT) then
+                --[[ Drop it until its top just meets the other's bottom. In
+                     centre coordinates that is the other's bottom edge less half
+                     of this bar's own height. ]]--
+                local limit = (above.y - (above.h / 2)) - (el.h / 2) - (pad * 2)
                 if el.y > limit then el.y = OB.ClampCoord(limit) end
             end
         end
@@ -183,12 +214,15 @@ function OB.RestackBars()
     local count = table.getn(order)
     if count == 0 then return end
 
-    local y = slots[order[1]].y
+    --[[ Walk the *top edge* down, placing each centre half a height below it.
+         The stack is an edge-to-edge thing; the coordinate is a centre. ]]--
+    local first = slots[order[1]]
+    local top = first.y + (first.h / 2)
 
     for i = 1, count do
         local el = slots[order[i]]
-        el.y = OB.ClampCoord(y)
-        y = y - el.h - (pad * 2)
+        el.y = OB.ClampCoord(top - (el.h / 2))
+        top = top - el.h - (pad * 2)
     end
 
     OB.ApplyPositions()
@@ -423,17 +457,16 @@ function OB.PositionMover()
     local left, right, top, bottom
 
     if target and target ~= "ALL" and slots[target] then
-        local el = slots[target]
-        left, right, top, bottom = el.x, el.x + el.w, el.y, el.y - el.h
+        left, right, top, bottom = edgesOf(slots[target])
     else
         for i = 1, table.getn(OB.barOrder) do
             local id = OB.barOrder[i]
             if slotActive(id) then
-                local el = slots[id]
-                if not left or el.x < left then left = el.x end
-                if not right or (el.x + el.w) > right then right = el.x + el.w end
-                if not top or el.y > top then top = el.y end
-                if not bottom or (el.y - el.h) < bottom then bottom = el.y - el.h end
+                local l, r, t, b = edgesOf(slots[id])
+                if not left or l < left then left = l end
+                if not right or r > right then right = r end
+                if not top or t > top then top = t end
+                if not bottom or b < bottom then bottom = b end
             end
         end
     end
@@ -442,8 +475,12 @@ function OB.PositionMover()
     if (right - left) < 1 then right = left + 1 end
     if (top - bottom) < 1 then bottom = top - 1 end
 
+    --[[ Anchored from the container's CENTER, the same reference the bars use.
+         The container is 1x1 so TOPLEFT and CENTER are half a pixel apart, but
+         "the same reference" is the property worth keeping: two anchors that
+         agree by rounding is how the original ghost-movement bug started. ]]--
     OB.mover:ClearAllPoints()
-    OB.mover:SetPoint("TOPLEFT", OB.container, "TOPLEFT", left, top)
+    OB.mover:SetPoint("TOPLEFT", OB.container, "CENTER", left, top)
     OB.mover:SetWidth(right - left)
     OB.mover:SetHeight(top - bottom)
 end

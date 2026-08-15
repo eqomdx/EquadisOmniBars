@@ -1144,13 +1144,33 @@ local function buildBarsPage(page)
     end
 end
 
+--[[ The Modules page lists **features**, not bars.
+
+     A feature is a whole optional subsystem you might prefer somebody else's
+     version of: the threat meter, the damage meter, nameplates, unit frames.
+     Switching one off is a real decision with a real cost, and it is the reason
+     this page exists.
+
+     A bar's module is not that. "I do not want an off hand timer" is answered by
+     Show Bar on the Bars page, next to that bar's own settings, where you are
+     already standing when you decide it. Listing eight bar toggles here as well
+     made the page look like the place bars are configured, which is the one thing
+     it is not.
+
+     Nothing sets `feature` yet, so the page is empty and says so. That is honest:
+     the subsystems it is for are Phases 3 to 5. ]]--
 local function buildModulesPage(page)
     buildRow(page, describeRow({ "Modules", "__h_modules", "header" },
             "global", nil), 1)
 
+    local listed = 0
+
     for i = 1, table.getn(OB.moduleOrder) do
         local id = OB.moduleOrder[i]
         local m = OB.modules[id]
+
+        if m.feature then
+        listed = listed + 1
 
         local caption = m.name
         if not OB.ClassAllows(m) then
@@ -1184,6 +1204,30 @@ local function buildModulesPage(page)
 
             if not OB.ClassAllows(m) then check:Disable() end
         end
+        end
+    end
+
+    --[[ Said plainly rather than left as a blank page, which reads as broken --
+         and this addon has already shipped one page that was blank because it
+         was broken (constraint 22). ]]--
+    if listed == 0 then
+        local note = OB.NewText(page, "OVERLAY", "GameFontDisableSmall")
+        note:SetJustifyH("LEFT")
+        note:SetWidth(PAGE_W - 20)
+        note:SetText("Nothing to switch off yet. The threat meter, damage meter,"
+                .. " nameplates and unit frames will appear here as they land,"
+                .. " each with its own on/off switch.\n\nIndividual bars are on"
+                .. " the Bars page -- each one has a Show Bar checkbox.")
+
+        local holder = CreateFrame("Frame", nil, page)
+        holder:SetWidth(1)
+        holder:SetHeight(1)
+        note:SetPoint("TOPLEFT", holder, "TOPLEFT", 0, 0)
+
+        holder.label = note
+        holder.Update = function() end
+        place(page, holder, { kind = "header", key = "", scope = "global" }, 1)
+        holder.alwaysShow = true
     end
 end
 

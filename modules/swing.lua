@@ -378,4 +378,4 @@ defineSwing("offhand", "Off Hand", "off", "offhand", { 1.0, 0.745, 0.31, 1 })
 --[[ The ranged timer has a bar of its own rather than sharing the main hand's.
      No class gate: a warrior with a gun gets it too, and anyone holding nothing
      ranged just sees the bar hide itself. ]]--
-defineSwing("ranged", "Ranged", "ranged", "ranged", { 0.45, 0.75, 1.0, 1 })
+defineSwing("ranged", "Ranged Attack", "ranged", "ranged", { 0.45, 0.75, 1.0, 1 })

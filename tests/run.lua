@@ -114,8 +114,12 @@ local function boot(class, powerType, opts)
          when it was not, and a harness where the good path is always available
          would have hidden that rather than caught it. ]]--
     Stub.SetUnitXP(opts.unitXP)
+    Stub.SetLineOfSight(opts.lineOfSight)
+    Stub.player.inSight = true
+    Stub.player.friendlyTarget = opts.friendlyTarget and true or false
     Stub.SetUnitPosition(opts.unitPosition)
     Stub.SetNampower(opts.nampower)
+    Stub.SetNampowerDistance(opts.nampowerDistance)
 
     --[[ Ranged slot contents, as GetItemInfo would report the subtype. Bows and
          guns fire Auto Shot, wands fire Shoot, and a relic fires nothing -- which
@@ -281,16 +285,23 @@ OB.TogglePanel()
 local resizeSlots = OB.profile.slots
 eq(OB.profile.allowOverlap, false, "overlap is off by default")
 
+--[[ Asserted on edges, not on the stored coordinate, because the coordinate is
+     the bar's *centre*: two centres being far apart says nothing about whether
+     the rectangles overlap. ]]--
+local function clearOfEachOther()
+    local _, _, aboveT, aboveB = OB.EdgesOf(resizeSlots.resource)
+    local _, _, belowT, belowB = OB.EdgesOf(resizeSlots.mainhand)
+    return belowT <= aboveB
+end
+
 local belowBefore = resizeSlots.mainhand.y
-check(resizeSlots.mainhand.y <= resizeSlots.resource.y - resizeSlots.resource.h,
-        "the bars start clear of each other")
+check(clearOfEachOther(), "the bars start clear of each other")
 
 OB.panel.bar = "resource"
 OB.ApplyOption(OB.optionIndex.slot.h, 40)
 
 eq(resizeSlots.resource.h, 40, "the bar really grew")
-check(resizeSlots.mainhand.y <= resizeSlots.resource.y - resizeSlots.resource.h,
-        "and the bar below was pushed clear rather than overlapped")
+check(clearOfEachOther(), "and the bar below was pushed clear rather than overlapped")
 check(resizeSlots.mainhand.y < belowBefore, "which means it moved")
 
 -- with overlap allowed, nothing is pushed
@@ -810,7 +821,7 @@ OB.SetProfile("Raiding")
 eq(OB.profile.slots.resource.y, 7, "and forward again")
 
 OB.ResetProfile()
-eq(OB.profile.slots.resource.y, 98, "resetting restores this profile's defaults")
+eq(OB.profile.slots.resource.y, 86, "resetting restores this profile's defaults")
 eq(EquadisOmniBarsDB.profiles.Default.slots.resource.y, 42,
         "and leaves the other profile alone")
 
@@ -1382,18 +1393,26 @@ context = "distance backend: "
 OB = boot("HUNTER", 0, { ranged = "Bows" })
 eq(OB.modules.distance.backend.id, "bands",
         "a plain client falls back to interaction bands")
+check(not OB.HasUnitXP(), "the stock UnitXP name is not mistaken for UnitXP_SP3")
 
 OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true })
 eq(OB.modules.distance.backend.id, "spell",
         "Nampower alone gives the engine's own range check")
 
-OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true })
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true,
+                         nampowerDistance = true })
 eq(OB.modules.distance.backend.id, "precise",
-        "and a position API beats it, because it can measure")
+        "a Nampower distance extension measures hostile units")
+
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true,
+                         friendlyTarget = true })
+eq(OB.modules.distance.backend.id, "precise",
+        "and a position API beats it for a friendly unit it can measure")
 
 -- UnitXP is the older distance source and still works where it exists
 OB = boot("HUNTER", 0, { ranged = "Bows", unitXP = true })
 eq(OB.modules.distance.backend.id, "precise", "UnitXP measures too")
+check(OB.HasUnitXP(), "the UnitXP_SP3 command probe recognises the extension")
 
 -- a forced backend that cannot run here falls back rather than drawing nothing
 OB = boot("HUNTER", 0, { ranged = "Bows" })
@@ -1462,7 +1481,8 @@ local function readAt(m, distance)
 end
 
 -- precise: a real distance against the weapon's real minimum and maximum
-OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true,
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true,
+                         nampowerDistance = true,
                          hasTarget = true })
 range = OB.modules.distance
 eq(range.backend.id, "precise", "measuring")
@@ -1471,16 +1491,19 @@ eq(readAt(range, 3), "tooclose", "inside the dead zone is too close")
 eq(readAt(range, 20), "inrange", "between the two is in range")
 eq(readAt(range, 60), "toofar", "past the maximum is too far")
 eq(range.yards, 60, "and the distance itself is reported")
+eq(range.answered.id, "precise", "Nampower measures a hostile target")
 
 -- a wand has no dead zone, so point blank is simply in range
-OB = boot("MAGE", 0, { ranged = "Wands", nampower = true, unitPosition = true,
+OB = boot("MAGE", 0, { ranged = "Wands", nampower = true,
+                       nampowerDistance = true,
                        hasTarget = true })
 eq(readAt(OB.modules.distance, 1), "inrange", "point blank with a wand is fine")
 
 --[[ The boolean backends cannot tell too-close from too-far by themselves --
      both come back as the same "no" -- so they split it on a melee check.
      Standing on top of a target you cannot shoot is the dead zone. ]]--
-OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, hasTarget = true })
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, hasTarget = true,
+                         friendlyTarget = true })
 range = OB.modules.distance
 eq(range.backend.id, "spell", "the engine's own boolean")
 
@@ -1490,7 +1513,8 @@ eq(readAt(range, 60), "toofar", "unable to shoot and far away reads as too far")
 check(range.yards == nil, "a boolean backend reports no distance")
 
 -- bands, the always-available fallback
-OB = boot("HUNTER", 0, { ranged = "Bows", hasTarget = true })
+OB = boot("HUNTER", 0, { ranged = "Bows", hasTarget = true,
+                         friendlyTarget = true })
 range = OB.modules.distance
 eq(range.backend.id, "bands", "the coarse fallback")
 eq(readAt(range, 5), "tooclose", "duel range with a dead zone is too close")
@@ -1510,12 +1534,49 @@ range.nextPoll = 0
 Stub.Tick(0.05, 2)
 check(range.state == nil, "no target means no state at all")
 
+--[[ A backend that cannot answer must not read as "no target".
+
+     They were the same nil, and that is the whole of the bug: the moment the
+     preferred backend declined for a particular target -- IsSpellInRange
+     answering -1, UnitPosition answering nothing for that unit -- the bar fell to
+     the no-target colour with something plainly targeted. It looked like the
+     colour never changing.
+
+     A decline now falls through to the weaker backends. `bands` always answers,
+     so a target always produces a state, and nil means only what it says. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true,
+                         hasTarget = true, friendlyTarget = true })
+range = OB.modules.distance
+eq(range.backend.id, "precise", "the preferred backend is the measuring one")
+
+readAt(range, 20)
+eq(range.state, "inrange", "which answers normally")
+eq(range.answered.id, "precise", "and is the one that answered")
+
+-- take the measurement away mid-session, as a client mod failing for one unit would
+Stub.SetUnitPosition(false)
+Stub.SetUnitXP(false)
+readAt(range, 20)
+
+check(range.state ~= nil, "a backend that declines does not read as no target")
+check(range.answered ~= nil, "something else answered instead")
+check(range.answered.id ~= "precise", "specifically a weaker backend",
+        "got " .. tostring(range.answered and range.answered.id))
+
+-- and no target is still no target, however many backends decline
+Stub.player.hasTarget = false
+range.nextPoll = 0
+Stub.Tick(0.05, 2)
+check(range.state == nil, "no target still reads as no target")
+check(range.answered == nil, "with nothing having answered")
+
 -- ---------------------------------------------------------------------------
 -- 23. drawing: one bar, coloured by state
 -- ---------------------------------------------------------------------------
 
 context = "distance drawing: "
-OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true,
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true,
+                         nampowerDistance = true,
                          hasTarget = true })
 range = OB.modules.distance
 local rangeCfg = OB.profile.modules.distance
@@ -1523,6 +1584,44 @@ local rangeBar = range.frame
 
 check(rangeBar.fill ~= nil, "the readout is a single bar")
 check(rangeBar.bars == nil, "with no segment children at all")
+
+-- current yards and the equipped attack's good maximum are separate labels
+for _, yards in ipairs({ 1, 23, 55 }) do
+    readAt(range, yards)
+    eq(rangeBar.left.text, tostring(yards) .. "y",
+            "current yards stay an exact counter at " .. tostring(yards))
+end
+
+readAt(range, 23)
+eq(rangeBar.left.text, "23y", "current yards draw on the left")
+eq(rangeBar.right.text, "[9-41y]", "the full good range draws in brackets on the right")
+eq(rangeBar.center.text, "", "the old centre readout is cleared")
+
+range.minRange, range.maxRange = 8, 30
+eq(range:GoodRangeText(), "[8-30y]", "good range includes both weapon limits")
+range:ScanWeapon()
+
+rangeCfg.swapText = true
+OB.SetDirty(range)
+Stub.Tick(0.05, 1)
+eq(rangeBar.left.text, "[9-41y]", "the two labels can swap sides")
+eq(rangeBar.right.text, "23y", "without changing their contents")
+
+rangeCfg.showText = false
+OB.SetDirty(range)
+Stub.Tick(0.05, 1)
+eq(rangeBar.right.text, "", "yards can be hidden independently")
+eq(rangeBar.left.text, "[9-41y]", "while good range remains")
+
+rangeCfg.showText = true
+rangeCfg.showGoodRange = false
+rangeCfg.swapText = false
+OB.SetDirty(range)
+Stub.Tick(0.05, 1)
+eq(rangeBar.left.text, "23y", "yards remain when good range is hidden")
+eq(rangeBar.right.text, "", "good range has its own toggle")
+
+rangeCfg.showGoodRange = true
 
 -- each state paints the bar its own colour
 readAt(range, 3)
@@ -1551,6 +1650,25 @@ end
 readAt(range, 20)
 check(not (rangeBar.ticks and rangeBar.ticks[1] and rangeBar.ticks[1].shown),
         "no tick is drawn, because nothing moves past it")
+
+-- The Nampower extension is the exact hostile-distance source when installed.
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true,
+                         nampowerDistance = true,
+                         hasTarget = true })
+range = OB.modules.distance
+rangeBar = range.frame
+eq(readAt(range, 20), "inrange", "a hostile still gets a range state")
+eq(range.yards, 20, "Nampower reports the hostile target's exact distance")
+eq(rangeBar.left.text, "20y", "the exact hostile yards draw on the left")
+eq(rangeBar.right.text, "[9-41y]", "the known good range stays bracketed on the right")
+
+-- return to a measured readout for the remaining draw and preview checks
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true,
+                         nampowerDistance = true,
+                         hasTarget = true })
+range = OB.modules.distance
+rangeCfg = OB.profile.modules.distance
+rangeBar = range.frame
 
 --[[ No target at zero opacity takes the whole bar away, background included,
      rather than leaving an empty trough -- which is the thing that reads as a
@@ -1595,9 +1713,15 @@ Stub.player.hasTarget = true
 OB.SetTestMode(true)
 
 local statesSeen = {}
+local noTargetFrames = 0
+
 for i = 1, 400 do
     Stub.Tick(0.05, 1)
-    if range.state then statesSeen[range.state] = true end
+    if range.state then
+        statesSeen[range.state] = true
+    else
+        noTargetFrames = noTargetFrames + 1
+    end
 end
 
 OB.SetTestMode(false)
@@ -1605,6 +1729,13 @@ OB.SetTestMode(false)
 local stateCount = 0
 for _ in pairs(statesSeen) do stateCount = stateCount + 1 end
 eq(stateCount, 3, "the preview walks every state a target can be in")
+
+--[[ And then drops target for two seconds, which is the only way the fourth
+     colour appears in a preview: seeing it for real means dropping target, and
+     dropping target is exactly what ends the preview you were looking at. ]]--
+check(noTargetFrames > 0, "the preview also shows the no-target state")
+check(noTargetFrames > 20, "and holds it long enough to see",
+        "held for " .. noTargetFrames .. " frames of 0.05s")
 
 -- ---------------------------------------------------------------------------
 -- 24. the ranged swing timer
@@ -1829,7 +1960,7 @@ OB = boot("ROGUE", 3, { savedVariables = {
     } },
 } })
 
-eq(OB.profile.schema, 7, "an old profile is migrated forward")
+eq(OB.profile.schema, 8, "an old profile is migrated forward")
 
 --[[ `hide` became `show`, inverted. A schema-2 profile carries no `show` at all,
      so the default supplies one and the migration has to overwrite it from the
@@ -1844,7 +1975,7 @@ local mainhand = OB.profile.slots.mainhand
 check(mainhand ~= nil, "swingA became mainhand")
 eq(mainhand.w, 150, "a tuned width survives")
 eq(mainhand.h, 20, "and height")
-eq(mainhand.x, 40, "and X")
+eq(mainhand.x, 115, "and X converts to a centre: 40 + half of 150")
 eq(mainhand.textSize, 14, "and text size")
 eq(mainhand.flip, true, "and flip")
 near(mainhand.bg[1], 1, 0.001, "and background colour")
@@ -1869,7 +2000,8 @@ eq(OB.bound.extras and OB.bound.extras.id, "combopoints",
 --[[ Restacked in the new order, and the cluster stays where it was rather than
      jumping to the shipped default -- the top of the old stack becomes the top
      of the new one. ]]--
-eq(OB.profile.slots.health.y, 115, "the stack keeps its old top")
+eq(OB.profile.slots.health.y + (OB.profile.slots.health.h / 2), 115,
+        "the stack keeps its old top edge")
 
 local lastY
 for i = 1, table.getn(OB.barOrder) do
@@ -1979,6 +2111,64 @@ for i = 1, table.getn(OB.barOrder) do
     near(bg[1] + bg[2] + bg[3], 0, 0.001, id .. " ships black")
     near(bg[4], want, 0.001, id .. " ships at the right opacity")
 end
+
+--[[ x and y are the bar's **centre**, and x = 0 is the middle of the screen.
+
+     They used to be the top-left corner, so x = 0 put a 200-wide bar half its
+     width off to the right -- every layout began by working out a number nobody
+     should have had to.
+
+     Y always converts, so nothing moves vertically. X only converts when it was
+     *not* the untouched default of 0, which is constraint 29: nobody chose the
+     off-centre position, so an untouched bar lands where the setting always
+     claimed it would. ]]--
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3, { name = "Centred", savedVariables = {
+    version = 1,
+    migrated = { roguebars = true },
+    chars = { ["Turtle WoW - Centred"] = "Default" },
+    profiles = { Default = {
+        schema = 7,
+        slots = {
+            health   = { x = 0,  y = 115, w = 200, h = 16 },  -- untouched
+            resource = { x = 40, y = 98,  w = 150, h = 24 },  -- positioned
+        },
+    } },
+} })
+
+local centred = OB.profile.slots.health
+eq(centred.y, 107, "an untouched bar's centre is half its height below the old top")
+eq(centred.x, 0, "and its X stays 0, which now means centred")
+
+local cl, cr, ct, cb = OB.EdgesOf(centred)
+eq(ct, 115, "so it spans exactly where it did vertically")
+eq(cb, 99, "top and bottom both")
+eq(cl, -100, "and is now centred horizontally")
+eq(cr, 100, "half its width each side of zero")
+
+local moved = OB.profile.slots.resource
+eq(moved.x, 115, "a bar somebody positioned converts instead")
+local ml, mr, mt = OB.EdgesOf(moved)
+eq(ml, 40, "so its left edge is exactly where they left it")
+eq(mt, 98, "and its top")
+
+-- every shipped default is centred
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+for i = 1, table.getn(OB.barOrder) do
+    local id = OB.barOrder[i]
+    local s = OB.profile.slots[id]
+    local l, r = OB.EdgesOf(s)
+    eq(s.x, 0, id .. " ships at x = 0")
+    eq(l, -(s.w / 2), id .. " sits half its width left of centre")
+    eq(r, s.w / 2, "and half to the right")
+end
+
+-- and the frame is anchored centre to centre, not corner to corner
+local anchored = OB.bound.health.frame.points[1]
+eq(anchored[1], "CENTER", "bars anchor by their centre")
+eq(anchored[3], "CENTER", "to the container's centre")
+eq(anchored[5], OB.profile.slots.health.y, "at exactly the stored offset")
 
 -- ---------------------------------------------------------------------------
 -- 28. the panel fails one control at a time
@@ -2149,6 +2339,24 @@ check(mentionsSelftest, "a registered command appears in the generated help")
 try("the command runs from the prompt", function()
     SlashCmdList["EQUADISOMNIBARS"]("selftest")
 end)
+
+-- The client-only range trace is available without changing any settings.
+Stub.chat = {}
+try("the range debug command runs", function()
+    SlashCmdList["EQUADISOMNIBARS"]("rangedebug")
+end)
+
+local rangeDebugHasPosition, rangeDebugHasBackend = false, false
+for i = 1, table.getn(Stub.chat) do
+    if string.find(Stub.chat[i], "UnitPosition target", 1, true) then
+        rangeDebugHasPosition = true
+    end
+    if string.find(Stub.chat[i], "selected=", 1, true) then
+        rangeDebugHasBackend = true
+    end
+end
+check(rangeDebugHasPosition, "range debug reports the target position call")
+check(rangeDebugHasBackend, "and the backend that actually answered")
 
 -- ---------------------------------------------------------------------------
 -- 30. the self-test detects what it exists to detect

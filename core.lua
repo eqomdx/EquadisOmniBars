@@ -17,7 +17,7 @@ local _G = getfenv(0)
 EquadisOmniBars = {}
 local OB = EquadisOmniBars
 
-OB.version = "0.4.2"
+OB.version = "0.5.0"
 OB.addonName = "Equadis' OmniBars"
 
 --[[ The addon folder name is load-bearing: every media path below hardcodes it,
@@ -301,7 +301,7 @@ OB.barLabels = {
     resource  = "Resource",
     mainhand  = "Main Hand",
     offhand   = "Off Hand",
-    ranged    = "Ranged",
+    ranged    = "Ranged Attack",
     distance  = "Ranged Distance Check",
     secondary = "Secondary Resource",
     extras    = "Extras",
@@ -427,6 +427,16 @@ function OB.RegisterModule(m)
          listing it would make every plain install report a failure for working
          as designed. ]]--
     m.requires = m.requires or {}
+
+    --[[ `feature = true` marks a whole optional subsystem -- the threat meter,
+         the damage meter, nameplates, unit frames -- rather than a bar. Only
+         features are listed on the Modules page, because switching one off is a
+         real decision about whether you would rather run somebody else's.
+
+         A bar is not that. "I do not want an off hand timer" is answered by Show
+         Bar, on the Bars page, next to that bar's own settings. Every module
+         still has an enable flag; only features offer it as a control. ]]--
+    m.feature = m.feature and true or false
 
     OB.modules[m.id] = m
     table.insert(OB.moduleOrder, m.id)

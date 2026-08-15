@@ -508,8 +508,15 @@ function GetComboPoints() return Stub.player.combo end
 function GetPlayerBuffTexture(i) return Stub.player.buffs[i + 1] end
 
 function UnitExists(unit)
-    if unit == "player" then return 1 end
-    return Stub.player.hasTarget and 1 or nil
+    if unit == "player" then return 1, "0xPLAYER" end
+    if Stub.player.hasTarget then return 1, "0xTARGET" end
+    return nil
+end
+
+function GetUnitGUID(unit)
+    if unit == "player" then return "0xPLAYER" end
+    if Stub.player.hasTarget then return "0xTARGET" end
+    return nil
 end
 
 function UnitRangedDamage(unit)
@@ -550,6 +557,23 @@ end
 
 function GetLocale() return Stub.locale or "enUS" end
 
+--[[ Whether the target can be attacked. Hostile by default, because that is what
+     a HUD is looking at almost all of the time -- and because
+     CheckInteractDistance answers nothing about such a unit, which is the whole
+     reason this matters. ]]--
+function UnitCanAttack(attacker, unit)
+    if not Stub.player.hasTarget then return nil end
+    if Stub.player.friendlyTarget then return nil end
+    return 1
+end
+
+--[[ UnitXP SP3's line-of-sight check, which is a *third* client mod -- separate
+     from SuperWoW and from Nampower, and not installed on the development
+     machine. Off unless a test asks, like every other injected API. ]]--
+function Stub.SetLineOfSight(present)
+    Stub.losAvailable = present and true or false
+end
+
 --[[ CheckInteractDistance's real thresholds: 1 inspect ~28yd, 2 trade ~11.1yd,
      3 duel ~9.9yd, 4 follow ~28yd.
 
@@ -562,6 +586,14 @@ local INTERACT_YARDS = { 28, 11.11, 9.9, 28 }
 function CheckInteractDistance(unit, index)
     if not Stub.player.hasTarget then return nil end
     if Stub.interactRefuses then return nil end
+
+    --[[ **Hostile units answer nil at every index**, because duelling, trading
+         and inspecting are all things you do to a player who is not trying to
+         kill you. Modelled rather than glossed over: without it the stub happily
+         measured range to a mob, which is the one target a HUD spends its whole
+         life pointed at -- and the addon shipped a distance readout that only
+         worked on friendly targets while the suite stayed green. ]]--
+    if UnitCanAttack("player", unit) then return nil end
 
     local limit = INTERACT_YARDS[index]
     if limit and (Stub.player.targetDistance or 0) <= limit then return 1 end
@@ -591,18 +623,34 @@ end
      coarsest backend as a result. A stub where the good path is always available
      would reproduce that mistake rather than catch it. ]]--
 
--- SuperWoW: UnitXP("distanceBetween"), and the newer UnitPosition
+-- UnitXP_SP3's command dispatcher.
 function Stub.SetUnitXP(present)
     if not present then
-        UnitXP = nil
+        -- The stock experience API already owns this global. It rejects SP3's
+        -- command arguments, which is how the addon distinguishes the two.
+        UnitXP = function(command)
+            if command ~= nil then error("Usage: UnitXP()") end
+            return Stub.player.xp or 0
+        end
         return
     end
 
     UnitXP = function(command, a, b)
+        if command == "nop" then return true end
         if command == "distanceBetween" then
             if b == "player" then return 0 end
             return Stub.player.targetDistance or 0
         end
+
+        --[[ SP3's line-of-sight check. A separate opt-in from UnitXP itself,
+             because a client can have the distance query without it -- and
+             returning a number rather than a boolean is how the addon tells
+             "cannot tell" from "blocked". ]]--
+        if command == "inSight" then
+            if not Stub.losAvailable then return 0 end
+            return Stub.player.inSight ~= false
+        end
+
         return 0
     end
 end
@@ -617,9 +665,20 @@ function Stub.SetUnitPosition(present)
         return
     end
 
+    --[[ Hostile targets answer nil here, which is a **conservative assumption
+         rather than a verified fact**. It is modelled that way because it is the
+         harder case: if SuperWoW turns out to answer for mobs too, an addon
+         written against this still works, whereas one written against the
+         optimistic model would fail on the only target a HUD ever points at.
+
+         The reported symptom -- "range check only works on friendly targets" --
+         is consistent with it, which is the other reason to assume it until
+         someone checks in game. ]]--
     UnitPosition = function(unit)
-        if unit == "player" then return 0, 0, 0 end
+        if unit == "player" or unit == "0xPLAYER" then return 0, 0, 0 end
         if not Stub.player.hasTarget then return nil end
+        if unit == "target" and not Stub.player.friendlyTarget then return nil end
+        if unit == "0xTARGET" then return nil end
         return Stub.player.targetDistance or 0, 0, 0
     end
 end
@@ -668,8 +727,13 @@ function Stub.SetNampower(present)
         return r[1], r[2], 0, name
     end
 
-    IsSpellInRange = function(id, unit)
-        local name = names[id]
+    --[[ Takes a spell **name or id**, as Nampower's does. That matters: the
+         addon has only a name unless the range-data APIs are also present, and a
+         stub that insisted on an id made the whole spell backend look broken
+         while the real one would have worked. ]]--
+    IsSpellInRange = function(spell, unit)
+        local name = names[spell]
+        if not name and Stub.spellRanges[spell] then name = spell end
         if not name then return nil end
         if not Stub.player.hasTarget then return -1 end
 
@@ -678,6 +742,21 @@ function Stub.SetNampower(present)
         if d < r[1] then return 0 end
         if d > r[2] then return 0 end
         return 1
+    end
+end
+
+-- Optional native extension proposed for Nampower. Stock 4.6.2 does not expose
+-- this function even though its object manager already has both unit positions.
+function Stub.SetNampowerDistance(present)
+    if not present then
+        GetUnitDistance = nil
+        return
+    end
+
+    GetUnitDistance = function(unit)
+        if unit == "player" or unit == "0xPLAYER" then return 0 end
+        if not Stub.player.hasTarget then return nil end
+        return Stub.player.targetDistance or 0
     end
 end
 
