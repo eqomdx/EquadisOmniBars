@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.7.1 — in development.**
+> **Version 0.7.2 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -110,10 +110,24 @@ combat log does not say which hand swung, a landed swing is attributed to
 whichever hand has been ready *longest* — which is what lets the pair recover on
 its own after a stun or a run out of range.
 
-**Health** — green by default, any color, optionally your class color, which
-overrides the swatch rather than replacing it. A **Color By Remaining Health**
-checkbox marks where a continuous green-to-red gradient will go; it says outright
-that it does nothing yet.
+**Health** — green by default, any color, and three ways to choose it:
+
+| Setting | |
+|---|---|
+| **Bar Color** | one color, whatever you pick |
+| **Color By Remaining Health** | a ramp between **Full**, **Half** and **Low** colors |
+| **Color By Class** | your class color |
+
+Class wins outright, the ramp beats the swatch, the swatch is what is left. A
+setting that is overridden is **greyed out rather than hidden** — it still
+applies the moment the thing above it is switched off, so removing it from the
+page would read as having deleted it.
+
+The ramp takes three colors rather than two on purpose. A straight blend from
+green to red passes through olive-brown at the halfway point, which reads as a
+fault rather than as half health; a bright middle keeps every value on the ramp
+legible. Set the middle to the average of the ends if you want a plain two-color
+blend.
 
 **Ranged Distance Check** — can you hit your target from here. **One bar, always
 full**, and its color is the whole answer. All five colors are yours to set:

@@ -135,22 +135,25 @@ end
 -- row visibility
 -- ---------------------------------------------------------------------------
 
-OB.predicates = {
-    power_mana = function()
-        local m = OB.modules.power
-        return m and (m.ptype == 0)
-    end,
+--[[ Added to rather than assigned, because the modules load first and a module
+     is the right place to keep a predicate about its own settings. This file
+     should not have to know what "the class colour is overriding the swatch"
+     means, any more than layout.lua knows what a slot contains. ]]--
+OB.predicates = OB.predicates or {}
 
-    power_rage = function()
-        local m = OB.modules.power
-        return m and (m.ptype == 1)
-    end,
-}
+OB.predicates.power_mana = function()
+    local m = OB.modules.power
+    return m and (m.ptype == 0)
+end
+
+OB.predicates.power_rage = function()
+    local m = OB.modules.power
+    return m and (m.ptype == 1)
+end
 
 --[[ Generalises Equadis' Threat Meter's dependsOn: a plain key, a negated key,
      or a named predicate for anything that is not a simple flag. ]]--
-local function dependencyMet(w)
-    local dep = w.dependsOn
+local function testDependency(w, dep)
     if not dep then return true end
 
     if string.sub(dep, 1, 1) == "@" then
@@ -179,7 +182,24 @@ local function rowVisible(w)
         if not occupant or occupant.id ~= w.module then return false end
     end
 
-    return dependencyMet(w)
+    return testDependency(w, w.dependsOn)
+end
+
+--[[ Greyed out is **not** hidden, and the two mean different things.
+
+     `dependsOn` removes a row that has no meaning yet -- the five second rule
+     shading has nothing to shade when the ticker is off, so there is nothing to
+     say about it and the row goes.
+
+     `greyWhen` keeps a row that still means something but is not currently in
+     charge. Colour By Class overrides the health swatch rather than replacing
+     it, and an earlier version expressed that by hiding the swatch -- which read
+     as the setting having been deleted, and was reported as exactly that. Left
+     visible and dimmed, the same fact reads as "your colour is still there,
+     something else is winning", which is what is actually true. ]]--
+local function rowGreyed(w)
+    if not w.greyWhen then return false end
+    return testDependency(w, w.greyWhen)
 end
 
 -- ---------------------------------------------------------------------------
@@ -540,10 +560,14 @@ end
      The positional shape is Equadis' Threat Meter's, so a row lifted from there
      needs no translation:
 
-       boolean  { caption, key, "boolean", nil, nil, nil, nil, dependsOn }
-       slider   { caption, key, "slider", min, max, step, factor, dependsOn }
-       colour   { caption, key, "color", withAlpha, nil, nil, nil, dependsOn }
-       list     { caption, key, values, width, nil, nil, nil, dependsOn }
+       boolean  { caption, key, "boolean", nil, nil, nil, nil, dependsOn, greyWhen }
+       slider   { caption, key, "slider", min, max, step, factor, dependsOn, greyWhen }
+       colour   { caption, key, "color", withAlpha, nil, nil, nil, dependsOn, greyWhen }
+       list     { caption, key, values, width, nil, nil, nil, dependsOn, greyWhen }
+
+     `dependsOn` removes a row that has no meaning; `greyWhen` dims one that has
+     a meaning but is not currently in charge. Both take the same predicate
+     syntax -- a key, a !negated key, or an @named predicate.
 
      A key may carry its own scope as "@variant:color", which is how the power
      module puts the current form's colour on the panel without one row per
@@ -564,6 +588,7 @@ local function describeRow(opt, scope, moduleId)
         scope = rowScope,
         module = moduleId,
         dependsOn = opt[8],
+        greyWhen = opt[9],
     }
 
     local kind = opt[3]
@@ -627,6 +652,39 @@ local function setShown(widget, shown)
     end
 end
 
+--[[ Dim a row and stop it responding, without moving or removing it.
+
+     Alpha *and* Disable, because neither alone is honest: alpha alone leaves a
+     control that looks unavailable and still works, and Disable alone leaves one
+     that looks available and does nothing. Between them the appearance and the
+     behaviour agree.
+
+     `Enable` and `Disable` exist on buttons, check buttons and sliders and not
+     on plain frames, so they are called only where they are found rather than
+     assumed by widget kind -- there is no reliable kind to switch on here, and
+     probing the method is what the rest of this file does for client mods. ]]--
+local GREYED = 0.35
+
+local function setEnabled(widget, enabled)
+    if widget.greyed == (not enabled) then return end
+    widget.greyed = not enabled
+
+    local alpha = enabled and 1 or GREYED
+
+    widget:SetAlpha(alpha)
+    if widget.label then widget.label:SetAlpha(alpha) end
+    if widget.box then
+        widget.box:SetAlpha(alpha)
+        widget.box:EnableMouse(enabled)
+    end
+
+    if enabled then
+        if widget.Enable then widget:Enable() end
+    elseif widget.Disable then
+        widget:Disable()
+    end
+end
+
 -- ---------------------------------------------------------------------------
 -- failing soft
 --
@@ -682,6 +740,8 @@ local function updateRow(widget)
     end
 
     widget.visible = visible
+
+    if widget.w then setEnabled(widget, not rowGreyed(widget.w)) end
 end
 
 --[[ The one protected call on the refresh path.

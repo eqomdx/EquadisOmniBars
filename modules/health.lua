@@ -12,6 +12,30 @@
 
 local OB = EquadisOmniBars
 
+--[[ Predicates for this module's own rows, registered here rather than in
+     options.lua: that file should not have to know what "the class colour is
+     overriding the swatch" means.
+
+     Both express the same precedence the draw path uses -- class beats gradient
+     beats swatch -- so a row that is not in charge says so by being dimmed
+     rather than by disappearing. ]]--
+OB.predicates = OB.predicates or {}
+
+local function healthConfig()
+    return OB.profile and OB.profile.modules and OB.profile.modules.health
+end
+
+OB.predicates.health_class = function()
+    local cfg = healthConfig()
+    return (cfg and cfg.classColor) and true or false
+end
+
+OB.predicates.health_no_ramp = function()
+    local cfg = healthConfig()
+    if not cfg then return false end
+    return (cfg.classColor or not cfg.healthGradient) and true or false
+end
+
 local M = OB.RegisterModule({
     id = "health",
     name = "Health",
@@ -26,30 +50,56 @@ local M = OB.RegisterModule({
         textMode = "max",
         textPos = 50,
 
-        --[[ Reserved, and read by nothing. The intent is a bar that slides from
-             green through to red as health falls, the way the threat meter
-             shades. The checkbox exists so the plan is visible where the setting
-             will live; its caption says outright that it does not work yet.
-
-             It replaced a three-setting "recolor when low" -- an enable, a
-             threshold and a colour -- which did roughly the same job in one
-             step rather than continuously. Those are gone rather than kept
-             alongside: two overlapping ways to colour a health bar by its own
-             value is one too many, and the migration clears them.
-
-             Do not wire this up incidentally. It needs a colour ramp and a
-             decision about how it interacts with Color By Class, neither of
-             which is designed. ]]--
+        --[[ A bar that slides from green to red as health falls. It replaced a
+             three-setting "recolor when low" -- an enable, a threshold and a
+             colour -- which did roughly the same job in one step rather than
+             continuously. Those are gone rather than kept alongside: two
+             overlapping ways to colour a health bar by its own value is one
+             too many. ]]--
         healthGradient = false,
+
+        --[[ **Three colours, not two, and the middle one is why it works.**
+
+             A straight blend from green to red passes through (0.5, 0.5, 0) at
+             halfway -- olive-brown, dark, and it reads as a fault rather than as
+             half health. Routing through a bright midpoint keeps every value on
+             the ramp legible.
+
+             This is what Equadis' Threat Meter does, in
+             EquadisThreatMeter.lua's row painter: below 50% it runs green to
+             yellow, above it yellow to red, with a `colorLimit` of 50 in the
+             middle. The difference here is that all three are settings. The
+             threat meter's are literals in the draw path and nothing on its
+             panel reaches them -- its configurable colours are for the glow.
+             Porting this back to it is the plan. ]]--
+        fullColor = { 0.10, 0.75, 0.20, 1 },
+        halfColor = { 0.95, 0.85, 0.15, 1 },
+        lowColor  = { 0.80, 0.15, 0.15, 1 },
     },
 
     options = {
-        --[[ Stays visible when Color By Class is on. Class colour *overrides*
-             this swatch rather than replacing the setting, and hiding the row
-             made the override look like the colour had been deleted. ]]--
-        { "Bar Color", "color", "color", true },
+        --[[ Nothing here is ever hidden by another setting, only dimmed.
+
+             Class colour *overrides* the swatch rather than replacing it, and an
+             earlier version said so by hiding the swatch -- which read as the
+             colour having been deleted, and was reported as exactly that. The
+             three ramp colours are dimmed the same way when the ramp is off, so
+             the panel shows what the ramp *would* look like while you are
+             deciding whether to switch it on. ]]--
+        { "Bar Color", "color", "color", true,
+          nil, nil, nil, nil, "@health_class" },
+
+        { "Color By Remaining Health", "healthGradient", "boolean",
+          nil, nil, nil, nil, nil, "@health_class" },
+        { "Full Health Color", "fullColor", "color", true,
+          nil, nil, nil, nil, "@health_no_ramp" },
+        { "Half Health Color", "halfColor", "color", true,
+          nil, nil, nil, nil, "@health_no_ramp" },
+        { "Low Health Color", "lowColor", "color", true,
+          nil, nil, nil, nil, "@health_no_ramp" },
+
         { "Color By Class", "classColor", "boolean" },
-        { "Color By Remaining Health - NOT ADDED YET", "healthGradient", "boolean" },
+
         { "Text", "textMode", OB.Enum(
                 { "none", "value", "percent", "max", "valuepct", "maxpct" },
                 { "None", "Current Only", "Percentage", "Current / Max",
@@ -89,6 +139,48 @@ end
 --[[ Player-only means the class is fixed and known at login, so this is three
      lines. Equadis' UnitFrames needs a hundred for the same idea because it has
      to handle arbitrary units, reactions, tapped mobs and pet happiness. ]]--
+--[[ A point between two colours, alpha included.
+
+     Alpha blends with the rest rather than being taken from one end, so a ramp
+     whose ends have different opacities fades as smoothly as it shades. Taking
+     it from either end alone would make the bar jump in opacity at the midpoint
+     while its colour moved continuously. ]]--
+local function blend(from, to, t)
+    local function mix(i, default)
+        local a, b = from[i] or default, to[i] or default
+        return a + ((b - a) * t)
+    end
+
+    return { mix(1, 0), mix(2, 0), mix(3, 0), mix(4, 1) }
+end
+
+--[[ The health ramp: low at empty, half at half, full at full.
+
+     Two segments rather than one, and that is the whole reason it is legible --
+     see the note on the colour defaults. Splitting at 0.5 also means the middle
+     swatch lands exactly where the eye expects it, so someone setting the three
+     colours can predict the result without doing arithmetic. ]]--
+function M:RampColor(fraction)
+    local cfg = self:Config()
+
+    if fraction < 0 then fraction = 0 end
+    if fraction > 1 then fraction = 1 end
+
+    if fraction >= 0.5 then
+        return blend(cfg.halfColor, cfg.fullColor, (fraction - 0.5) * 2)
+    end
+    return blend(cfg.lowColor, cfg.halfColor, fraction * 2)
+end
+
+--[[ One precedence, stated once, and the panel's dimming is derived from it:
+
+       Color By Class            wins outright
+       Color By Remaining Health wins over the swatch
+       Bar Color                 what is left
+
+     Class is on top because it is the one choice that is about *you* rather than
+     about the bar's value, so it should not be silently overruled by a ramp
+     somebody set months ago. ]]--
 function M:CurrentColor(fraction)
     local cfg = self:Config()
 
@@ -96,6 +188,8 @@ function M:CurrentColor(fraction)
         local r, g, b = OB.ClassColor(OB.class)
         return { r, g, b, cfg.color[4] or 1 }
     end
+
+    if cfg.healthGradient then return self:RampColor(fraction or 1) end
 
     return cfg.color
 end

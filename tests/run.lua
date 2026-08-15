@@ -3180,6 +3180,131 @@ posCfg.timerPos, posCfg.speedPos = 40, 60
 Stub.Tick(0.05, 2)
 check(textX(posBar.left) < textX(posBar.right),
         "and back, without a mode to switch")
+
+-- ---------------------------------------------------------------------------
+-- 28. the health colour ramp
+-- ---------------------------------------------------------------------------
+
+--[[ **Three colours, not two, and the middle one is why it works.**
+
+     A straight blend from green to red passes through (0.5, 0.5, 0) at halfway
+     -- olive-brown, dark, and it reads as a fault rather than as half health.
+     Equadis' Threat Meter solves it the same way, splitting at 50 and running
+     green-to-yellow then yellow-to-red; the difference here is that all three
+     are settings rather than literals in the draw path. ]]--
+context = "health ramp: "
+
+EquadisOmniBarsDB = nil
+OB = boot("ROGUE", 3)
+
+local hp = OB.modules.health
+local hpCfg = OB.profile.modules.health
+hpCfg.healthGradient = true
+
+local function rampAt(fraction)
+    return hp:RampColor(fraction)
+end
+
+local function sameColor(a, b, label)
+    near(a[1], b[1], 0.001, label .. " red")
+    near(a[2], b[2], 0.001, label .. " green")
+    near(a[3], b[3], 0.001, label .. " blue")
+end
+
+sameColor(rampAt(1), hpCfg.fullColor, "full health is the full colour")
+sameColor(rampAt(0.5), hpCfg.halfColor, "half is the half colour")
+sameColor(rampAt(0), hpCfg.lowColor, "and empty is the low one")
+
+--[[ The midpoint of each segment lands exactly between its two ends, which is
+     what makes the three swatches predictable: someone setting them can see the
+     result without doing arithmetic. ]]--
+local quarter = rampAt(0.25)
+near(quarter[1], (hpCfg.lowColor[1] + hpCfg.halfColor[1]) / 2, 0.001,
+        "a quarter is halfway from low to half")
+near(quarter[2], (hpCfg.lowColor[2] + hpCfg.halfColor[2]) / 2, 0.001,
+        "on every channel")
+
+--[[ It never goes through mud, which is the entire reason for the middle
+     colour. With the shipped green/yellow/red, every point on the ramp keeps a
+     bright channel -- a straight green-to-red blend would sag to 0.5/0.5 at the
+     middle. ]]--
+local dimmest = 1
+for i = 0, 20 do
+    local c = rampAt(i / 20)
+    local brightest = c[1]
+    if c[2] > brightest then brightest = c[2] end
+    if brightest < dimmest then dimmest = brightest end
+end
+check(dimmest > 0.7, "no point on the ramp goes muddy",
+        "dimmest was " .. tostring(dimmest))
+
+-- out of range values are clamped rather than extrapolated into nonsense
+sameColor(rampAt(2), hpCfg.fullColor, "above full clamps to full")
+sameColor(rampAt(-1), hpCfg.lowColor, "and below empty to low")
+
+--[[ One precedence, and the panel's dimming is derived from it: class wins
+     outright, the ramp beats the swatch, the swatch is what is left. Class is on
+     top because it is the one choice about *you* rather than about the bar's
+     value. ]]--
+context = "health color precedence: "
+
+hpCfg.healthGradient, hpCfg.classColor = false, false
+sameColor(hp:CurrentColor(0.5), hpCfg.color, "with neither on, the swatch wins")
+
+hpCfg.healthGradient = true
+sameColor(hp:CurrentColor(0.5), hpCfg.halfColor, "the ramp beats the swatch")
+
+hpCfg.classColor = true
+local cr, cg, cb = OB.ClassColor(OB.class)
+sameColor(hp:CurrentColor(0.5), { cr, cg, cb }, "and class beats the ramp")
+
+--[[ **Greyed out is not hidden**, and that distinction is the whole point of
+     the row state.
+
+     An earlier version expressed "class colour overrides the swatch" by hiding
+     the swatch, which read as the setting having been deleted and was reported
+     as exactly that. Dimmed and disabled, the same fact reads as "your colour is
+     still there, something else is winning" -- which is what is true. ]]--
+context = "greyed rows: "
+
+OB.TogglePanel()
+
+local swatch = OB.widgets["module:health:color"]
+local ramp = OB.widgets["module:health:healthGradient"]
+local fullSwatch = OB.widgets["module:health:fullColor"]
+local byClass = OB.widgets["module:health:classColor"]
+
+check(swatch ~= nil, "the health swatch has a control")
+check(ramp ~= nil and fullSwatch ~= nil and byClass ~= nil, "so do the ramp rows")
+
+hpCfg.classColor, hpCfg.healthGradient = true, true
+OB.RefreshPanel()
+
+check(swatch.visible, "class colour leaves the swatch on the page")
+eq(swatch.greyed, true, "greyed rather than removed")
+near(swatch:GetAlpha(), 0.35, 0.001, "and visibly dimmed")
+eq(swatch.enabled, false, "with the control actually disabled, not just faded")
+
+eq(ramp.greyed, true, "the ramp switch is greyed too")
+eq(fullSwatch.greyed, true, "and every ramp colour under it")
+eq(byClass.greyed, false, "but the one in charge is not")
+
+hpCfg.classColor = false
+OB.RefreshPanel()
+
+eq(swatch.greyed, false, "turning class colour off gives the swatch back")
+near(swatch:GetAlpha(), 1, 0.001, "at full opacity")
+eq(swatch.enabled, true, "and working again")
+eq(fullSwatch.greyed, false, "with the ramp colours live")
+
+--[[ The ramp's own colours dim when the ramp is off, so the panel still shows
+     what it *would* look like while you are deciding whether to switch it on. ]]--
+hpCfg.healthGradient = false
+OB.RefreshPanel()
+
+eq(fullSwatch.greyed, true, "a ramp colour dims when the ramp is off")
+check(fullSwatch.visible, "without leaving the page")
+eq(ramp.greyed, false, "and the switch itself stays live")
 -- ---------------------------------------------------------------------------
 -- report
 -- ---------------------------------------------------------------------------
