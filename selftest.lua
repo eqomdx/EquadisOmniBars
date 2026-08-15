@@ -582,6 +582,68 @@ local function probe(label, fn, a, b, c)
             .. " " .. GREY .. "(" .. type(value) .. ")" .. WHITE)
 end
 
+--[[ Can a **range ladder** be built here, and how fine would it be?
+
+     The idea: `IsSpellInRange` is a boolean, but a boolean against a *known
+     threshold* is one bit of a distance. Ask it about several spells with
+     different maximum ranges and the answers bracket the target -- 0 for the
+     35-yard spell and 1 for the 30 puts it between the two. That is the only
+     route to a hostile yard figure that does not need native code, since
+     IsSpellInRange is the one call on this client that answers about a mob.
+
+     Everything rests on one unknown, which is why this probes rather than
+     assumes: **does IsSpellInRange answer for a spell the player does not
+     know?** If it does, the ladder can be built from the whole spell table and
+     the rungs can be a few yards apart. If it only answers for spells in your
+     own book, a rogue gets thresholds at roughly 5, 10 and 30 yards and the
+     "measurement" is three buckets wide.
+
+     The candidates all have a **zero minimum range** on purpose. Auto Shot reads
+     0 both past 35 yards and inside 8, so a spell with a dead zone is not a
+     threshold at all -- it is two, and it breaks the ordering the whole method
+     depends on. ]]--
+local LADDER = {
+    { "Wing Clip", 5 }, { "Hammer of Justice", 10 }, { "Scatter Shot", 15 },
+    { "Fear", 20 }, { "Frostbolt", 30 }, { "Fireball", 35 }, { "Holy Light", 40 },
+}
+
+local function rangeLadderProbe()
+    OB.Raw("  " .. GREY .. "-- range ladder feasibility --" .. WHITE)
+
+    if type(IsSpellInRange) ~= "function" then
+        OB.Raw("    IsSpellInRange missing -- no ladder is possible here")
+        return
+    end
+
+    for i = 1, table.getn(LADDER) do
+        local name, assumed = LADDER[i][1], LADDER[i][2]
+
+        local known = "no"
+        if type(GetSpellName) == "function" then
+            local j = 1
+            while true do
+                local spell = GetSpellName(j, BOOKTYPE_SPELL)
+                if not spell then break end
+                if spell == name then known = "yes" break end
+                j = j + 1
+            end
+        end
+
+        --[[ The DBC range alongside the engine's answer. If the two disagree the
+             assumed number above is wrong, and a ladder built on it would be
+             confidently mis-calibrated rather than merely coarse. ]]--
+        local dbcMin, dbcMax = OB.SpellRange(name)
+        local dbc = dbcMax and (tostring(dbcMin) .. "-" .. tostring(dbcMax))
+                or "no data"
+
+        local ok, result = pcall(IsSpellInRange, name, "target")
+        local answer = ok and tostring(result) or ("ERROR " .. tostring(result))
+
+        OB.Raw("    " .. name .. " (~" .. assumed .. "y): known=" .. known
+                .. " dbc=" .. dbc .. " IsSpellInRange=" .. answer)
+    end
+end
+
 function OB.RunRangeDebug()
     local m = OB.modules.distance
     if not m then
@@ -653,6 +715,8 @@ function OB.RunRangeDebug()
     if m.actionSlot then
         probe("IsActionInRange(slot)", IsActionInRange, m.actionSlot)
     end
+
+    rangeLadderProbe()
 
     --[[ Every backend asked both questions in turn, against the target actually
          selected. "available but declines" and "never considered" look identical
