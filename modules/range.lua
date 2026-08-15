@@ -7,7 +7,7 @@
     in range     the equipped ranged weapon can reach the target
     too close    inside its minimum range -- the hunter dead zone
     too far      past its maximum
-    no line of sight  something is in the way (opt in; needs UnitXP_SP3)
+    no line of sight  something is in the way (opt in)
     no target    nothing selected
 
   The question is deliberately about the *equipped weapon* rather than some
@@ -128,12 +128,26 @@ end
 
 --[[ Whether UnitXP_SP3's command dispatcher is present.
 
-     Vanilla already owns the global name `UnitXP`, so checking only whether it
-     is a function mistakes the ordinary experience API for the client mod. SP3
-     deliberately accepts `nop` as a capability probe; the stock function
-     rejects that call. ]]--
+     Vanilla already owns the global name `UnitXP`: it is the ordinary experience
+     API and it takes a unit token, so `type(UnitXP) == "function"` is true on
+     every stock client and means nothing. SP3 replaces that function with a
+     dispatcher taking a command name.
+
+     The discriminator is therefore a **negative** one, and it has to be: asking
+     SP3's questions of the stock API and shape-checking the answers is not
+     enough, because "0" is a plausible shape for a distance. So ask the *stock*
+     question instead. `UnitXP("player")` returns a number on a stock client --
+     zero at max level, but still a number -- and "player" is not one of SP3's
+     commands, so a number back is proof this is the experience API and not the
+     mod. ]]--
 function OB.HasUnitXP()
     if type(UnitXP) ~= "function" then return false end
+
+    local ok, xp = pcall(UnitXP, "player")
+    if ok and type(xp) == "number" then return false end
+
+    -- SP3 accepts `nop` as a capability probe. Anything reaching here has
+    -- already failed to behave like the stock API.
     return pcall(UnitXP, "nop", "nop") and true or false
 end
 
@@ -199,11 +213,67 @@ end
      "definitely blocked". Treating the first as the second would put a wall in
      front of every target on a client that simply has no opinion. ]]--
 function OB.InSight(unit)
-    if type(UnitXP) ~= "function" then return nil end
+    --[[ OB.HasUnitXP, not `type(UnitXP) == "function"`. **Vanilla already owns
+         the global name `UnitXP`** -- it is the ordinary experience API -- so the
+         plain type check passes on every stock client and this went on to call
+         it with "inSight" and two unit tokens. That returned a number, the
+         boolean test rejected it, and the whole feature answered "cannot tell"
+         forever while looking like it was wired up. ]]--
+    if not OB.HasUnitXP() then return nil end
 
     local ok, sight = pcall(UnitXP, "inSight", "player", unit)
     if not ok or type(sight) ~= "boolean" then return nil end
     return sight
+end
+
+--[[ Line of sight without any client mod at all.
+
+     Vanilla will not let you *ask*, but it does tell you: a shot refused for line
+     of sight raises UI_ERROR_MESSAGE carrying SPELL_FAILED_LINE_OF_SIGHT, which
+     is the same "Target not in line of sight" the client puts on screen. Several
+     addons here key off UI_ERROR_MESSAGE the same way (pfUI's autoshift,
+     ShaguTweaks' auto-dismount).
+
+     That makes the check **reactive rather than continuous**: it knows only after
+     something has been refused, and it cannot know when the obstruction clears.
+     So the latch expires, and its *absence is never evidence of sight* -- this
+     returns false while blocked and nil otherwise, never true. Reporting "in
+     sight" from silence would paint the bar green behind a wall, which is worse
+     than not knowing.
+
+     The window is short because it is a guess about the future: it says "you
+     were blocked a moment ago", and a moment is all that entitles it to. ]]--
+local LOS_WINDOW = 2
+
+--[[ Built on first use rather than at load, so the client's own strings are
+     guaranteed to be in place however the files were ordered, and so a locale
+     that spells the refusal differently still matches: the comparison is against
+     whatever *this* client would print, never against English.
+
+     The literal is the floor, not the answer -- it covers an enUS client that
+     somehow lacks the global, and costs nothing anywhere else. ]]--
+local losStrings = nil
+
+local function lineOfSightStrings()
+    if losStrings then return losStrings end
+
+    losStrings = { ["Target not in line of sight"] = true }
+
+    local names = { "SPELL_FAILED_LINE_OF_SIGHT",
+                    "SPELL_FAILED_NOT_IN_LINE_OF_SIGHT",
+                    "ERR_NOT_IN_LINE_OF_SIGHT" }
+
+    for i = 1, table.getn(names) do
+        local text = getglobal(names[i])
+        if type(text) == "string" and text ~= "" then losStrings[text] = true end
+    end
+
+    return losStrings
+end
+
+function OB.IsLineOfSightError(message)
+    if type(message) ~= "string" then return false end
+    return lineOfSightStrings()[message] and true or false
 end
 
 function OB.SpellRange(name)
@@ -428,6 +498,7 @@ local M = OB.RegisterModule({
 
     events = {
         "PLAYER_ENTERING_WORLD", "PLAYER_TARGET_CHANGED",
+        "UI_ERROR_MESSAGE",
         "UNIT_INVENTORY_CHANGED",
     },
 })
@@ -629,13 +700,8 @@ function M:Read()
          you are standing well inside range wondering why nothing is firing, that
          is exactly the half you needed. ]]--
     if self:Config().losCheck then
-        local sight = OB.InSight("target")
-
-        if sight == nil then
-            self:WarnNoLineOfSight()
-        elseif not sight then
-            return "nolos", yards
-        end
+        if self:Sight() == false then return "nolos", yards end
+        if not OB.HasUnitXP() then self:WarnLineOfSightIsReactive() end
     end
 
     if self.blindToHostiles then self:WarnBlindToHostiles() end
@@ -643,15 +709,37 @@ function M:Read()
     return state, yards
 end
 
+--[[ Can the player see the target: true, false, or nil for "cannot tell".
+
+     Two sources that answer in different shapes. UnitXP is continuous and can
+     say yes, so it is asked first and its answer stands. The reactive latch can
+     only ever say no, so it is the fallback and never contradicts a real yes. ]]--
+function M:Sight()
+    local sight = OB.InSight("target")
+    if sight ~= nil then return sight end
+
+    if self.losBlockedAt and (GetTime() - self.losBlockedAt) < LOS_WINDOW then
+        return false
+    end
+
+    return nil
+end
+
 --[[ Said once per session, not once per frame: both of these are conditions of
      the client rather than events, so they are true continuously and a message
      per reading would be ten a second. ]]--
-function M:WarnNoLineOfSight()
+--[[ Not a failure -- the check works without any client mod. But it works
+     *reactively*, and a user who expects a bar that turns colour the moment they
+     step behind a pillar deserves to be told once that it will not: nothing in
+     vanilla can be asked about line of sight, so the only signal is the refusal
+     that comes back after a shot has already been attempted. ]]--
+function M:WarnLineOfSightIsReactive()
     if self.warnedLos then return end
     self.warnedLos = true
 
-    OB.Print("line of sight checking needs the UnitXP client mod, which is not"
-            .. " loaded here -- the setting is on but has nothing to ask.")
+    OB.Print("line of sight is reactive on this client: the bar turns only after"
+            .. " a shot is refused for it, and clears a couple of seconds later."
+            .. " UnitXP_SP3 would make it continuous.")
 end
 
 function M:WarnBlindToHostiles()
@@ -670,16 +758,31 @@ function M:OnBind(slot)
 end
 
 function M:OnEvent()
-    if event == "UNIT_INVENTORY_CHANGED" and arg1 and arg1 ~= "player" then
-        return
-    end
+    if event == "UI_ERROR_MESSAGE" then
+        --[[ Every refused action arrives here -- out of range, facing the wrong
+             way, not enough rage, a dozen more -- so anything that is not the
+             line of sight refusal is none of this module's business and must not
+             cost it a re-read. ]]--
+        if not OB.IsLineOfSightError(arg1) then return end
+        self.losBlockedAt = GetTime()
 
-    if event == "PLAYER_ENTERING_WORLD" or event == "UNIT_INVENTORY_CHANGED" then
+    elseif event == "UNIT_INVENTORY_CHANGED" then
+        if arg1 and arg1 ~= "player" then return end
         self:Probe()
+
+    elseif event == "PLAYER_ENTERING_WORLD" then
+        self:Probe()
+
+    elseif event == "PLAYER_TARGET_CHANGED" then
+        --[[ The latch is about one target. Carrying it across a target change
+             would paint the new one blocked for the rest of the window on the
+             strength of a refusal that had nothing to do with it. ]]--
+        self.losBlockedAt = nil
     end
 
-    -- both remaining events invalidate the reading, and a target change is the
-    -- moment a stale one is actively misleading: it describes somebody else
+    -- every event that gets this far invalidates the reading, and a target
+    -- change is the moment a stale one is actively misleading: it describes
+    -- somebody else
     self.nextPoll = 0
     OB.SetDirty(self)
 end

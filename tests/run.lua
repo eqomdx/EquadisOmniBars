@@ -1654,6 +1654,63 @@ check(rangeCfg.noLosColor[1] ~= rangeCfg.tooFarColor[1],
 -- and the check is opt-in
 rangeCfg.losCheck = false
 eq(readAt(range, 20), "inrange", "with the check off, sight is not consulted")
+
+--[[ **Without any client mod at all**, which is the case that actually ships.
+
+     Vanilla will not let the addon *ask* about line of sight, but it does say
+     so: a shot refused for it raises UI_ERROR_MESSAGE carrying
+     SPELL_FAILED_LINE_OF_SIGHT. That makes the check reactive -- it knows only
+     after something has been refused -- so it is a latch with an expiry, and the
+     whole of the design follows from one asymmetry: silence is not sight. ]]--
+context = "line of sight without a client mod: "
+
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, nampowerDistance = true,
+                         hasTarget = true })
+range = OB.modules.distance
+rangeBar = range.frame
+rangeCfg = OB.profile.modules.distance
+rangeCfg.losCheck = true
+
+check(not OB.HasUnitXP(), "no UnitXP here, which is the point")
+eq(readAt(range, 20), "inrange", "and with nothing refused yet, range is the answer")
+
+Stub.FireEvent("UI_ERROR_MESSAGE", SPELL_FAILED_LINE_OF_SIGHT)
+eq(readAt(range, 20), "nolos", "the client's own refusal is the signal")
+near(rangeBar.fill.vertex[1], rangeCfg.noLosColor[1], 0.01, "and it gets the same colour")
+
+--[[ It expires, because it is a claim about the future: it says "you were
+     blocked a moment ago", and a moment is all that entitles it to. Nothing ever
+     tells the addon the obstruction has cleared. ]]--
+Stub.Tick(0.5, 5)
+eq(readAt(range, 20), "inrange", "and it expires rather than sticking")
+
+--[[ Every refused action comes through UI_ERROR_MESSAGE. Reacting to all of
+     them would put a wall in front of a target that was merely out of range, or
+     that the player was facing away from. ]]--
+Stub.FireEvent("UI_ERROR_MESSAGE", "Out of range.")
+eq(readAt(range, 20), "inrange", "another error message is not this one")
+check(not OB.IsLineOfSightError(nil), "and neither is nothing at all")
+
+--[[ The latch describes one target. Carrying it across a target change would
+     paint the new one blocked on the strength of a refusal about somebody
+     else. ]]--
+Stub.FireEvent("UI_ERROR_MESSAGE", SPELL_FAILED_LINE_OF_SIGHT)
+Stub.FireEvent("PLAYER_TARGET_CHANGED")
+eq(readAt(range, 20), "inrange", "and a new target starts the question again")
+
+-- opt-in here too: the latch is still set, it is simply not consulted
+rangeCfg.losCheck = false
+Stub.FireEvent("UI_ERROR_MESSAGE", SPELL_FAILED_LINE_OF_SIGHT)
+eq(readAt(range, 20), "inrange", "with the check off, the refusal is ignored")
+rangeCfg.losCheck = true
+
+context = "distance drawing: "
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, nampowerDistance = true,
+                         hasTarget = true, unitXP = true, lineOfSight = true })
+range = OB.modules.distance
+rangeBar = range.frame
+rangeCfg = OB.profile.modules.distance
+Stub.player.inSight = true
 Stub.player.inSight = true
 readAt(range, 3)
 near(rangeBar.fill.vertex[1], rangeCfg.tooCloseColor[1], 0.01, "too close has its colour")

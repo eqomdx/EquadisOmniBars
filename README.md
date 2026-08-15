@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.5.0 — in development.**
+> **Version 0.5.2 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -113,13 +113,14 @@ checkbox marks where a continuous green-to-red gradient will go; it says outrigh
 that it does nothing yet.
 
 **Ranged Distance Check** — can you hit your target from here. **One bar, always
-full**, and its color is the whole answer. All four colors are yours to set:
+full**, and its color is the whole answer. All five colors are yours to set:
 
 | State | Default |
 |---|---|
 | In range | green |
 | Too close — inside a bow's dead zone | orange |
 | Too far | red |
+| No line of sight — something is in the way | violet, and off by default |
 | No target | fully transparent, which hides the bar |
 
 The question is about **your equipped ranged weapon**, not some generic distance.
@@ -136,6 +137,15 @@ exposes `GetUnitDistance`, or from **UnitXP_SP3**. Without an exact source,
 hostile targets still get the correct range state but not a numeric yardage. With
 none of these extensions it falls back to the game's coarse interaction
 distances, or to one action bar slot you nominate.
+
+**Check Line Of Sight** is off by default and needs nothing installed, but you
+should know how it works before turning it on. Vanilla will not let an addon
+*ask* whether something is in the way — there is no such API — so the only signal
+is the client's own refusal: try to shoot, get *Target not in line of sight*, and
+the bar turns violet for a couple of seconds. It cannot tell you in advance, and
+it cannot notice the obstruction clearing, so it goes quiet on its own rather
+than guessing. If **UnitXP_SP3** is installed the check becomes continuous
+instead, and the bar turns the moment you step behind a pillar.
 
 Two settings only matter when the above cannot answer, and on most installs they
 never come into play:

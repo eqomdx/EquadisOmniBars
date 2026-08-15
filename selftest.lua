@@ -353,6 +353,23 @@ section("range backend", function(t)
     if not OB.bound.distance then note = note .. ", bar not drawn" end
 
     t:note(note)
+
+    --[[ Which of the two line of sight routes this client is on, and it matters
+         because they behave differently enough to be different features. The
+         reactive one needs nothing installed but only knows after a shot has
+         been refused; the continuous one can be asked. Reported rather than
+         asserted -- neither is a failure. ]]--
+    if cfg.losCheck then
+        t:ok(OB.IsLineOfSightError(SPELL_FAILED_LINE_OF_SIGHT),
+                "the client's line of sight message is not recognised")
+
+        if OB.HasUnitXP and OB.HasUnitXP() then
+            t:note("line of sight: continuous, via UnitXP_SP3")
+        else
+            t:note("line of sight: reactive -- known only after a refused shot,"
+                    .. " and cleared a couple of seconds later")
+        end
+    end
 end)
 
 -- ---------------------------------------------------------------------------

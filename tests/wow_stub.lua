@@ -626,10 +626,16 @@ end
 -- UnitXP_SP3's command dispatcher.
 function Stub.SetUnitXP(present)
     if not present then
-        -- The stock experience API already owns this global. It rejects SP3's
-        -- command arguments, which is how the addon distinguishes the two.
-        UnitXP = function(command)
-            if command ~= nil then error("Usage: UnitXP()") end
+        --[[ The stock experience API already owns this global, and it does not
+             complain about being handed a command name -- it just reads it as a
+             unit token and finds no such unit.
+
+             It used to `error` here, which was a flattering guess: it made a
+             `pcall`-shaped probe look like it could tell the two apart when it
+             could not. Returning quietly, the way the real function does, is
+             what forces the addon to discriminate on the *answer* instead. ]]--
+        UnitXP = function(unit)
+            if unit ~= "player" then return nil end
             return Stub.player.xp or 0
         end
         return
@@ -651,7 +657,10 @@ function Stub.SetUnitXP(present)
             return Stub.player.inSight ~= false
         end
 
-        return 0
+        --[[ A dispatcher, so an unrecognised command is nothing rather than
+             zero. This is what a `UnitXP("player")` probe leans on: the stock
+             API answers it with a number and SP3 does not answer it at all. ]]--
+        return nil
     end
 end
 
@@ -822,6 +831,16 @@ function IsAddOnLoaded(name) return Stub.loadedAddons and Stub.loadedAddons[name
 _G = _G or getfenv(0)
 
 STANDARD_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
+
+--[[ The refusal strings, exactly as 1.12's GlobalStrings.lua spells them.
+     `SPELL_FAILED_LINE_OF_SIGHT` is the one the client puts on screen and passes
+     as UI_ERROR_MESSAGE's arg1; the other two do not exist in 1.12 and are left
+     undefined on purpose, so anything that reads them has to cope with nil the
+     way it must in game. ]]--
+SPELL_FAILED_LINE_OF_SIGHT = "Target not in line of sight"
+
+-- `UnitXP` is set up by Stub.SetUnitXP, which models both the stock experience
+-- API and UnitXP_SP3's dispatcher. See the note there.
 
 RAID_CLASS_COLORS = {
     WARRIOR = { r = 0.78, g = 0.61, b = 0.43 },
