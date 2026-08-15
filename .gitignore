@@ -11,3 +11,6 @@ graphify-out/
 
 # session handover notes: local working document, full of absolute paths
 HANDOFF.md
+
+# session status notes: local working doc, same reason as HANDOFF.md
+STATUS.md
