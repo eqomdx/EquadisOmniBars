@@ -549,6 +549,7 @@ local M = OB.RegisterModule({
         "PLAYER_ENTERING_WORLD", "PLAYER_TARGET_CHANGED",
         "UI_ERROR_MESSAGE",
         "UNIT_INVENTORY_CHANGED",
+        "ACTIONBAR_SLOT_CHANGED",
     },
 })
 
@@ -911,6 +912,16 @@ function M:OnEvent()
     elseif event == "PLAYER_ENTERING_WORLD" then
         self:Probe()
 
+    elseif event == "ACTIONBAR_SLOT_CHANGED" then
+        --[[ Marked, not scanned. Two reasons, and both are about when this
+             fires: it arrives once per button while the bars populate at login,
+             so scanning here would run the 120-slot sweep dozens of times in a
+             second; and the sweep run *during* that populate is the one that
+             finds nothing, which is why the slot was found on one session and
+             not the next. Deferring to the next tick lets the bars settle. ]]--
+        self.actionScanDue = true
+        return
+
     elseif event == "PLAYER_TARGET_CHANGED" then
         --[[ The latch is about one target. Carrying it across a target change
              would paint the new one blocked for the rest of the window on the
@@ -925,9 +936,21 @@ function M:OnEvent()
     OB.SetDirty(self)
 end
 
+-- how long the action bars are given to settle before the slot sweep re-runs
+local ACTION_RESCAN = 2
+
 function M:OnUpdate(now)
     if self.nextPoll and now < self.nextPoll then return end
     self.nextPoll = now + POLL
+
+    --[[ The deferred sweep, collapsed into one run however many buttons moved.
+         Bounded on both sides: it cannot run more than once per window, and it
+         only runs at all when something actually changed. ]]--
+    if self.actionScanDue and now > (self.lastActionScan or 0) + ACTION_RESCAN then
+        self.actionScanDue = nil
+        self.lastActionScan = now
+        self.actionSlot = self:FindActionSlot()
+    end
 
     local state, yards = self:Read()
     if state == self.state and yards == self.yards then return end

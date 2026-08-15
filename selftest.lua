@@ -591,24 +591,37 @@ end
      route to a hostile yard figure that does not need native code, since
      IsSpellInRange is the one call on this client that answers about a mob.
 
-     Everything rests on one unknown, which is why this probes rather than
-     assumes: **does IsSpellInRange answer for a spell the player does not
-     know?** If it does, the ladder can be built from the whole spell table and
-     the rungs can be a few yards apart. If it only answers for spells in your
-     own book, a rogue gets thresholds at roughly 5, 10 and 30 yards and the
-     "measurement" is three buckets wide.
+     The first pass asked by **name** and every rung failed the same way, which
+     turned out to be Nampower telling us how to do it properly:
 
-     The candidates all have a **zero minimum range** on purpose. Auto Shot reads
-     0 both past 35 yards and inside 8, so a spell with a dead zone is not a
-     threshold at all -- it is two, and it breaks the ordering the whole method
-     depends on. ]]--
+       Unable to determine spell id from spell name, possibly because it isn't
+       in your spell book.  Try IsSpellInRange(SPELL_ID) instead
+
+     So the spellbook limit is on the name lookup, not on the range check. Asking
+     by id should answer for any spell in the game, which is what the dense
+     ladder needs. This pass asks by id.
+
+     The ids are hardcoded and **not trusted**: each one is printed back with the
+     name and range the client itself holds for it, so a wrong id shows up as a
+     wrong name rather than quietly calibrating the ladder to the wrong distance.
+     Reading the range from the client also means Turtle can have retuned any of
+     them and the ladder still lands where the engine says it does.
+
+     Candidates want a **zero minimum range**. Charge reads 0 both past 25 yards
+     and inside 8, so a spell with a dead zone is not one threshold but two, and
+     it breaks the ordering the method depends on. Charge is included anyway,
+     precisely so the dead zone shows up in the output rather than being assumed
+     away. ]]--
 local LADDER = {
-    { "Wing Clip", 5 }, { "Hammer of Justice", 10 }, { "Scatter Shot", 15 },
-    { "Fear", 20 }, { "Frostbolt", 30 }, { "Fireball", 35 }, { "Holy Light", 40 },
+    { 2974, "Wing Clip" },          { 853, "Hammer of Justice" },
+    { 19503, "Scatter Shot" },      { 5782, "Fear" },
+    { 116, "Frostbolt" },           { 133, "Fireball" },
+    { 635, "Holy Light" },          { 1130, "Hunter's Mark" },
+    { 100, "Charge (has a dead zone)" },
 }
 
 local function rangeLadderProbe()
-    OB.Raw("  " .. GREY .. "-- range ladder feasibility --" .. WHITE)
+    OB.Raw("  " .. GREY .. "-- range ladder, asked by spell id --" .. WHITE)
 
     if type(IsSpellInRange) ~= "function" then
         OB.Raw("    IsSpellInRange missing -- no ladder is possible here")
@@ -616,31 +629,34 @@ local function rangeLadderProbe()
     end
 
     for i = 1, table.getn(LADDER) do
-        local name, assumed = LADDER[i][1], LADDER[i][2]
+        local id, expected = LADDER[i][1], LADDER[i][2]
 
-        local known = "no"
-        if type(GetSpellName) == "function" then
-            local j = 1
-            while true do
-                local spell = GetSpellName(j, BOOKTYPE_SPELL)
-                if not spell then break end
-                if spell == name then known = "yes" break end
-                j = j + 1
+        --[[ What the client says this id actually is. The hardcoded label is
+             only a note to the reader; this is the value that decides whether
+             the id is right. ]]--
+        local realName = "?"
+        if type(GetSpellRecField) == "function" then
+            local okName, value = pcall(GetSpellRecField, id, "name")
+            if okName and type(value) == "string" then realName = value end
+        end
+
+        local dbc = "no data"
+        if type(GetSpellRecField) == "function"
+                and type(GetSpellRangeData) == "function" then
+            local okIndex, index = pcall(GetSpellRecField, id, "rangeIndex")
+            if okIndex and index then
+                local okRange, minRange, maxRange = pcall(GetSpellRangeData, index)
+                if okRange and type(maxRange) == "number" then
+                    dbc = tostring(minRange) .. "-" .. tostring(maxRange)
+                end
             end
         end
 
-        --[[ The DBC range alongside the engine's answer. If the two disagree the
-             assumed number above is wrong, and a ladder built on it would be
-             confidently mis-calibrated rather than merely coarse. ]]--
-        local dbcMin, dbcMax = OB.SpellRange(name)
-        local dbc = dbcMax and (tostring(dbcMin) .. "-" .. tostring(dbcMax))
-                or "no data"
-
-        local ok, result = pcall(IsSpellInRange, name, "target")
+        local ok, result = pcall(IsSpellInRange, id, "target")
         local answer = ok and tostring(result) or ("ERROR " .. tostring(result))
 
-        OB.Raw("    " .. name .. " (~" .. assumed .. "y): known=" .. known
-                .. " dbc=" .. dbc .. " IsSpellInRange=" .. answer)
+        OB.Raw("    " .. id .. " " .. expected .. ": client=" .. realName
+                .. " dbc=" .. dbc .. " inRange=" .. answer)
     end
 end
 

@@ -1544,6 +1544,26 @@ OB.modules.distance:Probe()
 eq(OB.modules.distance.actionSlot, 25, "the auto-attack is found on the bars")
 eq(OB.modules.distance.backend.id, "action", "and the backend runs off it")
 
+--[[ **And it re-scans when the bars change**, because the sweep run at login is
+     the one most likely to find nothing.
+
+     Confirmed in game: two runs of the same command on the same character, one
+     reporting slot 42 and the next reporting no slot at all. ACTIONBAR_SLOT_CHANGED
+     fires once per button while the bars populate, so the scan that happens
+     during that populate sees a half-built bar. The rescan is deferred and
+     collapsed rather than run per event, or a login would sweep 120 slots dozens
+     of times in a second. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows" })
+range = OB.modules.distance
+eq(range.actionSlot, nil, "an empty bar at login finds nothing")
+
+Stub.actionBar[64] = "Auto Shot"
+Stub.FireEvent("ACTIONBAR_SLOT_CHANGED", 64)
+eq(range.actionSlot, nil, "and the event alone does not sweep")
+
+Stub.Tick(0.5, 8)
+eq(range.actionSlot, 64, "but the deferred rescan finds it once the bars settle")
+
 --[[ The *player's* auto-attack, not any ranged spell that happens to be bound.
      A warrior with a gun fires Shoot Gun, so a bar holding Auto Shot is
      somebody else's button and watching it would read a hunter's range. ]]--
