@@ -1597,17 +1597,80 @@ eq(farHigh, nil, "with no ceiling invented above it")
 --[[ It reaches the screen as a band, written as one. Rounding to a midpoint
      would fit the label better and claim a precision never measured -- which is
      the whole reason the ladder exists. ]]--
+--[[ **One number, stepped to five yards, and the same steps for every kind of
+     target.**
+
+     A band is already on a step, because every rung is a multiple of five. An
+     exact distance is floored onto the same steps -- so a friendly unit measured
+     at 23 yards and a mob narrowed to the 20-25 band both read "20y", and the
+     readout stops changing character depending on what is selected. It used to:
+     exact sources cover friendly units and the ladder covers everything else, so
+     one showed "23y" and the other "20-25y" for the same distance. ]]--
 range.yards = nil
-range.bandLow, range.bandHigh = 35, 40
-eq(range:YardsText(), "35-40y", "the label says what was actually established")
+range.bandLow, range.bandHigh = 20, 25
+eq(range:DistanceText(), "20y", "a band reads as its lower step")
 
-range.bandLow, range.bandHigh = 100, nil
-eq(range:YardsText(), "100+y", "and admits when it has no upper bound")
-
---[[ An exact source always wins, and the two are never both on screen claiming
-     different things. ]]--
 range.yards = 23
-eq(range:YardsText(), "23y", "an exact distance supersedes the band")
+eq(range:DistanceText(), "20y", "and an exact distance floors onto the same one")
+
+--[[ The first step reads 5y rather than 0y: nothing is ever at zero, and "0y"
+     reads as a failure rather than a distance. ]]--
+range.yards = nil
+range.bandLow, range.bandHigh = 0, 5
+eq(range:DistanceText(), "5y", "the closest band still reads five")
+range.yards = 1
+eq(range:DistanceText(), "5y", "and so does an exact distance inside it")
+
+--[[ Past fifty the exact figure stops being useful and the rungs get coarse, so
+     one honest ceiling beats a number pretending otherwise. ]]--
+range.yards = nil
+range.bandLow, range.bandHigh = 60, 100
+eq(range:DistanceText(), "50y+", "everything past fifty shares a ceiling")
+range.bandLow, range.bandHigh = 100, nil
+eq(range:DistanceText(), "50y+", "including past the longest rung")
+range.yards = 200
+eq(range:DistanceText(), "50y+", "and an exact distance out there too")
+
+--[[ The equipped attack's whole range is a separate, static fact and sits on the
+     other side of the bar. Off by default: a number that never changes, on a bar
+     whose job is to change, invites being read as the answer. ]]--
+eq(OB.profile.modules.distance.showRange, false, "the spell range label ships off")
+eq(range:SpellRangeText(), "[8-30y]", "and spells out the equipped attack's range")
+
+--[[ **Walking out of the dead zone must not flash red on the way to green.**
+
+     The too-close/too-far split used to be decided by CheckInteractDistance's
+     duel band, about 9.9 yards, against a bow's real minimum -- and the two
+     measure differently, one counting the target's combat reach and the other
+     not. Crossing that disagreement painted the too-far colour for a moment
+     between too-close and in-range: a red flicker at the exact moment the player
+     is watching for green.
+
+     The measured distance settles it instead. Coarse, but "below the minimum or
+     not" is a coarse question, and unlike the interaction bands it answers for
+     hostile units at all. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, hasTarget = true })
+local walker = OB.modules.distance
+check(walker.minRange > 0, "a bow has a dead zone")
+
+local walk = {}
+for step = 0, 30 do
+    Stub.player.targetDistance = 2 + (step * 0.5)
+    walker.nextPoll = 0
+    Stub.Tick(0.05, 2)
+    table.insert(walk, walker.state)
+end
+
+local flashed, seenClose = nil, false
+for i = 1, table.getn(walk) do
+    if walk[i] == "tooclose" then seenClose = true end
+    if seenClose and walk[i] == "toofar" then flashed = i end
+end
+
+check(seenClose, "standing on top of the target reads as too close")
+check(flashed == nil, "and walking out of it never flashes the too-far colour",
+        "flashed at step " .. tostring(flashed))
+eq(walk[table.getn(walk)], "inrange", "the walk ends in range")
 
 --[[ End to end: a hostile target on a client with no exact-distance source at
      all -- which is this installation -- now gets a number where it used to get
@@ -1620,14 +1683,16 @@ eq(OB.UnitDistance("target"), nil, "nothing here can measure exactly")
 eq(range.bandLow, 35, "yet the ladder still brackets the target")
 eq(range.bandHigh, 40, "from both sides")
 
---[[ Measured on a slower clock than the colour. Three or four calls into a
-     client mod, ten times a second, to re-establish a band that only moves when
-     a five-yard rung is crossed, is forty calls buying nothing. ]]--
+--[[ **Measured every poll, not on a slower clock.**
+
+     It was throttled to a quarter second while it only fed the readout. That
+     stopped being safe once the too-close/too-far split started reading it: a
+     band a quarter second old is a *wrong colour* for a quarter second while
+     moving, which is worse than the flicker the split was changed to fix. Four
+     DBC lookups ten times a second is not a cost worth a staleness bug. ]]--
 Stub.player.targetDistance = 12
 Stub.Tick(0.1, 1)
-eq(range.bandLow, 35, "a band is not re-measured on every colour poll")
-Stub.Tick(0.1, 4)
-eq(range.bandLow, 10, "but it does catch up on its own cadence")
+eq(range.bandLow, 10, "a band tracks the colour rather than lagging it")
 
 --[[ And a target change measures at once rather than showing the previous
      target's distance until the clock comes round. ]]--
@@ -1879,29 +1944,33 @@ local rangeBar = range.frame
 check(rangeBar.fill ~= nil, "the readout is a single bar")
 check(rangeBar.bars == nil, "with no segment children at all")
 
---[[ One label, and only when there is a live distance to put in it.
-
-     There was a second, `[9-41y]`, spelling out the equipped attack's whole good
-     range on the other side. It went because it is the wrong shape of fact: a
-     static interval beside a live counter reads as though both are measurements,
-     and on a stock install -- where nothing can give an exact distance to a
-     hostile unit -- it was the only number on the bar and it never changed. A
-     number that never changes, on a bar whose whole job is to change, invites
-     being read as the answer. The colour is the answer. ]]--
+--[[ The live distance, stepped to five yards whatever the source. An exact
+     measurement is floored onto the same steps a band already sits on, so the
+     label does not change character depending on whether the target is friendly
+     or hostile. ]]--
+local stepped = { [1] = "5y", [23] = "20y", [55] = "50y+" }
 for _, yards in ipairs({ 1, 23, 55 }) do
     readAt(range, yards)
-    eq(rangeBar.center.text, tostring(yards) .. "y",
-            "the live distance reads exactly at " .. tostring(yards))
+    eq(rangeBar.center.text, stepped[yards],
+            "an exact " .. tostring(yards) .. " yards steps to " .. stepped[yards])
 end
 
 eq(rangeBar.left.text, "", "nothing is drawn on the left")
-eq(rangeBar.right.text, "", "nor on the right")
+eq(rangeBar.right.text, "", "and the spell range is off by default")
 
 rangeCfg.showText = false
 OB.SetDirty(range)
 Stub.Tick(0.05, 1)
-eq(rangeBar.center.text, "", "and the one label can be switched off")
+eq(rangeBar.center.text, "", "the distance label can be switched off")
 rangeCfg.showText = true
+
+--[[ The equipped attack's whole range is the other, static fact, and it sits on
+     the far side so it cannot be mistaken for the live one. ]]--
+rangeCfg.showRange = true
+readAt(range, 23)
+eq(rangeBar.right.text, "[9-41y]", "and the spell range can be switched on")
+eq(rangeBar.center.text, "20y", "alongside the live one, not instead of it")
+rangeCfg.showRange = false
 
 --[[ No ranged attack at all: the bar goes, whatever is targeted.
 
@@ -1977,6 +2046,25 @@ near(rangeBar.fill.vertex[1], rangeCfg.noLosColor[1], 0.01, "and it gets the sam
      tells the addon the obstruction has cleared. ]]--
 Stub.Tick(0.5, 5)
 eq(readAt(range, 20), "inrange", "and it expires rather than sticking")
+
+--[[ **How long it holds is the player's call.**
+
+     Nothing ever confirms the wall has gone, so the window is a guess about the
+     future and only the player knows how long a guess they want. A short one
+     flickers; a long one lies for longer after stepping clear. ]]--
+eq(rangeCfg.losWindow, 2, "the window ships at two seconds")
+
+rangeCfg.losWindow = 0.5
+Stub.FireEvent("UI_ERROR_MESSAGE", SPELL_FAILED_LINE_OF_SIGHT)
+eq(readAt(range, 20), "nolos", "a shorter window still latches")
+Stub.Tick(0.1, 3)
+eq(readAt(range, 20), "nolos", "and holds inside it")
+Stub.Tick(0.1, 4)
+eq(readAt(range, 20), "inrange", "then clears sooner than the default would")
+
+-- and the latch is left cold, so the checks below start from nothing
+rangeCfg.losWindow = 2
+Stub.FireEvent("PLAYER_TARGET_CHANGED")
 
 --[[ Every refused action comes through UI_ERROR_MESSAGE. Reacting to all of
      them would put a wall in front of a target that was merely out of range, or

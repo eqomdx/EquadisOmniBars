@@ -271,8 +271,9 @@ end
      than not knowing.
 
      The window is short because it is a guess about the future: it says "you
-     were blocked a moment ago", and a moment is all that entitles it to. ]]--
-local LOS_WINDOW = 2
+     were blocked a moment ago", and a moment is all that entitles it to. How
+     long a moment is, is the No Line Of Sight Timer -- the player is the only
+     one who can judge it, since nothing ever confirms the wall has gone. ]]--
 
 --[[ Built on first use rather than at load, so the client's own strings are
      guaranteed to be in place however the files were ordered, and so a locale
@@ -495,9 +496,29 @@ OB.rangeOrder = { "precise", "spell", "action", "bands" }
      Only when the weapon has a minimum range at all: a wand has none, so being
      unable to shoot with one always means too far. ]]--
 local function closeOrFar(m)
-    if (m.minRange or 0) > 0 and CheckInteractDistance("target", 3) then
-        return "tooclose"
+    if (m.minRange or 0) <= 0 then return "toofar" end
+
+    --[[ A measured distance settles it outright, and is asked first because the
+         fallback below gets it wrong at exactly the boundary that matters.
+
+         CheckInteractDistance's duel band is about 9.9 yards and a bow's minimum
+         is 8, so the two disagree over a yard and a half -- and they measure
+         differently, one counting the target's combat reach and the other not,
+         so against a large target they disagree further still. Walking out of
+         the dead zone crossed that disagreement and the bar flashed the too-far
+         colour on the way from too-close to in-range: a red flicker at the one
+         moment the player is watching for green.
+
+         The band is enough. It is coarse, but "below the minimum or not" is a
+         coarse question, and unlike the interaction bands it answers for hostile
+         units at all. ]]--
+    local measured = m.measured or m.bandLow
+    if measured then
+        if measured < m.minRange then return "tooclose" end
+        return "toofar"
     end
+
+    if CheckInteractDistance("target", 3) then return "tooclose" end
     return "toofar"
 end
 
@@ -636,11 +657,6 @@ OB.rangeBackends.bands = {
      so the first reading on a new target is immediate. ]]--
 local POLL = 0.1
 
---[[ The ladder's own, slower cadence. A band costs three or four calls into a
-     client mod and only changes when a five-yard rung is crossed, so it does not
-     need the colour's ten-a-second. ]]--
-local LADDER_POLL = 0.25
-
 local M = OB.RegisterModule({
     id = "distance",
     name = "Ranged Distance Check",
@@ -657,6 +673,19 @@ local M = OB.RegisterModule({
         deadZone = 0,
 
         showText = true,
+
+        --[[ Off, because it is the label that had to be removed once already: a
+             number that never changes, on a bar whose whole job is to change,
+             invites being read as the answer. Worth having as a reminder of what
+             your weapon can do; not worth having on by default. ]]--
+        showRange = false,
+
+        --[[ How long a refused shot keeps the bar on the no-line-of-sight
+             colour. Configurable because the right value depends on how you
+             play: nothing ever says the obstruction has cleared, so this is a
+             guess about the future and only the player knows how long a guess
+             they want. ]]--
+        losWindow = 2,
 
         --[[ Off, because it needs UnitXP SP3 and most installs do not have it.
              Switching it on without that says so once rather than doing nothing
@@ -698,8 +727,10 @@ local M = OB.RegisterModule({
         { "Too Far Color", "tooFarColor", "color", true },
         { "No Line Of Sight Color", "noLosColor", "color", true },
         { "No Target Color", "noTargetColor", "color", true },
-        { "Show Yards", "showText", "boolean" },
+        { "Show Active Distance", "showText", "boolean" },
+        { "Show Spell Range", "showRange", "boolean" },
         { "Check Line Of Sight", "losCheck", "boolean" },
+        { "No Line Of Sight Timer", "losWindow", "slider", 0.1, 2, 0.1 },
         { "Fallback Maximum Range", "maxRange", "slider", 5, 100, 1 },
         { "Fallback Dead Zone", "deadZone", "slider", 0, 20, 1 },
     },
@@ -901,12 +932,45 @@ end
 
      Which backend actually answered is worth knowing, so the self-test can say
      when the preferred one is quietly never used. ]]--
+--[[ How far away the target is: exactly if anything can say, otherwise narrowed
+     to a band by the ladder.
+
+     Sets `measured`, `bandLow` and `bandHigh` and returns nothing, because two
+     callers want it -- the readout, and the too-close/too-far split, which needs
+     a distance before the state is decided rather than after.
+
+     The band is cleared whenever an exact source answered, so the two can never
+     both be live and claiming different things.
+
+     **Measured every poll, not on a slower clock of its own.** It was throttled
+     to a quarter second while it only fed the readout, on the reasoning that a
+     band moves rarely and each one costs three or four calls into a client mod.
+     That stopped being safe the moment the split above started reading it: a
+     band up to a quarter second old is a *wrong colour* for a quarter second
+     while moving, which is worse than the flicker the split was changed to fix.
+
+     The saving was never real anyway. A binary search over twelve rungs is four
+     calls, and four DBC lookups ten times a second is not a cost worth
+     introducing a staleness bug to avoid. ]]--
+function M:Measure()
+    self.measured = OB.UnitDistance("target")
+
+    if self.measured or not self.ladder then
+        self.bandLow, self.bandHigh = nil, nil
+        return
+    end
+
+    self.bandLow, self.bandHigh = OB.LadderBand(self.ladder)
+end
+
 function M:Read()
     if OB.testMode then
         --[[ nil range is the preview's no-target phase, which exists so the
              fourth colour is visible without dropping target. ]]--
         local yards = OB.test.range
         if not yards then return nil, nil end
+
+        self.measured, self.bandLow, self.bandHigh = yards, nil, nil
 
         if (self.minRange or 0) > 0 and yards < self.minRange then
             return "tooclose", yards
@@ -917,8 +981,18 @@ function M:Read()
 
     if not UnitExists("target") then
         self.answered = nil
+        self.measured, self.bandLow, self.bandHigh = nil, nil, nil
         return nil, nil
     end
+
+    --[[ **Distance first, state second.**
+
+         The split between "too close" and "too far" needs a distance, and asking
+         for it afterwards meant deciding on the previous poll's -- or, before
+         that, on an interaction band that disagrees with the weapon's real
+         minimum. Measuring up front costs nothing: the exact source was going to
+         be consulted anyway. ]]--
+    self:Measure()
 
     --[[ Asked only when it can answer *this* target. The preferred backend is
          chosen once, at login, and whether it can measure a given unit is not a
@@ -952,43 +1026,12 @@ function M:Read()
         return nil, nil
     end
 
-    --[[ **The yard count is a separate question from the state**, and it is asked
-         separately.
-
-         It used to come only from whichever backend produced the state, so a
-         client that could measure the distance perfectly well showed no number
-         whenever the engine's boolean check happened to answer first -- and the
-         boolean check is the *preferred* backend on any Nampower install. The
-         readout was blank on exactly the targets Nampower is best at. Asking
-         here means an exact source is used wherever it exists, whatever decided
-         the colour. ]]--
-    if not yards then yards = OB.UnitDistance("target") end
-
-    --[[ Failing an exact source, narrow it to a band.
-
-         Deliberately last, and deliberately not a backend. The ladder is a
-         *distance* source, not a state source: the state is already correct
-         everywhere -- Nampower's check on the equipped weapon accounts for the
-         target's combat reach and the weapon's own minimum, which no
-         reconstruction from rungs would match -- and the only thing missing was
-         a number. Keeping the two apart means the ladder cannot make a working
-         colour worse.
-
-         Cleared when an exact source answered, so the two can never both be on
-         screen claiming different things.
-
-         Measured on its own slower clock. Each band costs three or four calls
-         into a client mod, and at the ten-a-second the colour is read that is
-         forty; a band only changes when you cross a rung five yards away, so
-         asking that often buys nothing. A target change resets the clock, so the
-         first reading on a new target is still immediate. ]]--
-    if yards or not self:Config().showText or not self.ladder then
-        self.bandLow, self.bandHigh = nil, nil
-
-    elseif not self.nextLadder or GetTime() >= self.nextLadder then
-        self.nextLadder = GetTime() + LADDER_POLL
-        self.bandLow, self.bandHigh = OB.LadderBand(self.ladder)
-    end
+    --[[ Measure already ran, so a backend that had no number to give does not
+         cost the readout one. It used to come only from whichever backend
+         produced the state, and the boolean check is the *preferred* backend on
+         any Nampower install -- so the readout was blank on exactly the targets
+         Nampower is best at. ]]--
+    yards = yards or self.measured
 
     --[[ A hostile target with a state but no number is its own complaint, and a
          different one from having no state at all.
@@ -1036,7 +1079,8 @@ function M:Sight()
     local sight = OB.InSight("target")
     if sight ~= nil then return sight end
 
-    if self.losBlockedAt and (GetTime() - self.losBlockedAt) < LOS_WINDOW then
+    if self.losBlockedAt
+            and (GetTime() - self.losBlockedAt) < (self:Config().losWindow or 2) then
         return false
     end
 
@@ -1134,7 +1178,6 @@ function M:OnEvent()
         self.losBlockedAt = nil
 
         -- likewise the band, which describes a distance to somebody else
-        self.nextLadder = nil
         self.bandLow, self.bandHigh = nil, nil
     end
 
@@ -1195,24 +1238,42 @@ end
        left    the exact current distance
        right   the equipped attack's complete good range, in brackets
 
-     An exact source fills the left side with a number. Failing that the ladder
-     fills it with a **band**, and the band is written as a band -- "30-35y" --
-     because it is one. Rounding it to a midpoint would fit the label better and
-     claim a precision that was never measured, and the whole reason the ladder
-     exists is that this client cannot measure. The two are never both present:
-     Read clears the band whenever an exact source answered.
+     **One number, stepped to five yards, and the same steps for every kind of
+     target.** An exact distance is floored to the step; a band is already on one,
+     because every rung is a multiple of five. So a friendly unit measured
+     exactly at 23 yards and a mob narrowed to the 20-25 band both read "20y",
+     and the readout does not change character depending on what is selected --
+     which it did while the exact sources covered friendlies and the ladder
+     covered everything else.
 
-     Past the longest rung there is no upper bound to give, so it reads "100+y". ]]--
-function M:YardsText()
-    if self.yards then return tostring(OB.Round(self.yards)) .. "y" end
+     Two edges. The first step reads "5y" rather than "0y", because nothing is
+     ever at zero and "0y" reads as a failure. The last reads "50y+": past fifty
+     the exact figure stops being useful and the rungs get coarse, so a single
+     honest ceiling beats a number that pretends otherwise. ]]--
+local STEP = 5
+local STEP_CEILING = 50
 
-    if self.bandLow and self.bandHigh then
-        return tostring(OB.Round(self.bandLow)) .. "-"
-                .. tostring(OB.Round(self.bandHigh)) .. "y"
-    end
-    if self.bandLow then return tostring(OB.Round(self.bandLow)) .. "+y" end
+function M:DistanceText()
+    local low = self.bandLow
 
-    return ""
+    if self.yards then low = math.floor(self.yards / STEP) * STEP end
+    if not low then return "" end
+
+    if low >= STEP_CEILING then return STEP_CEILING .. "y+" end
+    if low < STEP then low = STEP end
+
+    return low .. "y"
+end
+
+--[[ The equipped attack's whole usable range, as "[8-30y]".
+
+     A static interval, and it is opt-in for that reason: next to a live counter
+     it reads as though both are measurements. Off by default. ]]--
+function M:SpellRangeText()
+    if not self.spell or not self.maxRange then return "" end
+
+    return "[" .. tostring(OB.Round(self.minRange or 0)) .. "-"
+            .. tostring(OB.Round(self.maxRange)) .. "y]"
 end
 
 function M:OnStyle(slot)
@@ -1283,12 +1344,13 @@ function M:OnDraw()
          never changes on a bar whose whole job is to change is worse than no
          number: it invites you to read it as the answer. The colour is the
          answer. ]]--
-    local yardsText = ""
-    if cfg.showText then yardsText = self:YardsText() end
-
+    --[[ The live distance in the middle; the static interval, if asked for, on
+         the right. They are separated because they are different kinds of fact,
+         and putting the unchanging one next to the changing one is what made the
+         interval read as a measurement. ]]--
     bar.left:SetText("")
-    bar.right:SetText("")
-    bar.center:SetText(yardsText)
+    bar.center:SetText(cfg.showText and self:DistanceText() or "")
+    bar.right:SetText(cfg.showRange and self:SpellRangeText() or "")
 
     -- the dead zone edge used to be ticked, marking where a draining fill would
     -- cross it. With nothing draining there is no crossing to mark.

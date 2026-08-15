@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.6.2 — in development.**
+> **Version 0.6.3 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -151,8 +151,13 @@ anyway, by asking a question it *can* ask.
 `IsSpellInRange` only answers yes or no — but yes or no against a *known
 threshold* is one bit of a distance. Ask about a spell that reaches 35 yards and
 one that reaches 40: no, then yes, puts your target between the two. Enough
-spells and the answer narrows to a band, which is what the label shows:
-`35-40y`, or `100+y` past the longest one.
+spells and the answer narrows to a five-yard step.
+
+The label shows that step: `5y`, `10y`, `15y`, up to `50y+`. **The same steps
+whatever you are pointing at** — friendly, neutral or hostile — because an exact
+distance, where one is available, is floored onto the same steps rather than
+shown to the yard. A readout that said `23y` on a friendly NPC and `20y` on a mob
+would be two readouts wearing one label.
 
 You do not need to know the spells, and neither did OmniBars — the rung list came
 out of the client's own range table. Several of them are not player spells at
@@ -168,9 +173,16 @@ login, so a server that has retuned something calibrates to the retuned value.
 Spells with a dead zone are dropped: a threshold that answers "no" from both
 directions is not a threshold.
 
-It shows a band rather than a midpoint on purpose. A midpoint would fit the
-label better and claim a precision that was never measured. An exact source,
-where you have one, replaces the band entirely.
+Three settings govern the labels and the line-of-sight hold:
+
+- **Show Active Distance** — the live stepped figure in the middle of the bar.
+- **Show Spell Range** — your equipped attack's whole usable range, `[8-30y]`, on
+  the right. Off by default: a number that never changes, on a bar whose job is
+  to change, invites being read as the answer.
+- **No Line Of Sight Timer** — 0.1 to 2 seconds, how long a refused shot holds
+  the violet. Nothing ever confirms the wall has gone, so this is a guess about
+  the future and only you know how long a guess you want. Short flickers; long
+  keeps lying after you have stepped clear.
 
 `/eqob rangedebug` prints the rungs your client produced. `/eqob rangescan` goes
 further and lists every band the client *could* measure, naming one spell for
