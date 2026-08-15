@@ -115,6 +115,7 @@ local function boot(class, powerType, opts)
          would have hidden that rather than caught it. ]]--
     Stub.SetUnitXP(opts.unitXP)
     Stub.SetLineOfSight(opts.lineOfSight)
+    Stub.SetNampowerSight(opts.nampowerSight)
     Stub.player.inSight = true
     Stub.player.friendlyTarget = opts.friendlyTarget and true or false
     Stub.SetUnitPosition(opts.unitPosition)
@@ -1703,6 +1704,29 @@ rangeCfg.losCheck = false
 Stub.FireEvent("UI_ERROR_MESSAGE", SPELL_FAILED_LINE_OF_SIGHT)
 eq(readAt(range, 20), "inrange", "with the check off, the refusal is ignored")
 rangeCfg.losCheck = true
+
+--[[ A native query, which is the only thing that turns the check from reactive
+     into continuous: it can be *polled*, so it answers before a shot is fired
+     and it notices the obstruction clearing. Shaped like GetUnitDistance and
+     preferred over UnitXP, because Nampower is what actually loads here. ]]--
+context = "line of sight from a native query: "
+
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, nampowerDistance = true,
+                         hasTarget = true, nampowerSight = true })
+range = OB.modules.distance
+rangeCfg = OB.profile.modules.distance
+rangeCfg.losCheck = true
+
+Stub.player.inSight = false
+eq(readAt(range, 20), "nolos", "blocked without anything having been fired")
+
+Stub.player.inSight = true
+eq(readAt(range, 20), "inrange", "and clear again the moment it is, with no expiry")
+
+--[[ Continuous beats reactive: the latch can only ever say "blocked", so a
+     stale refusal must not overrule a live query that says otherwise. ]]--
+Stub.FireEvent("UI_ERROR_MESSAGE", SPELL_FAILED_LINE_OF_SIGHT)
+eq(readAt(range, 20), "inrange", "a live yes outranks a stale refusal")
 
 context = "distance drawing: "
 OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, nampowerDistance = true,

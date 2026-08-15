@@ -363,7 +363,9 @@ section("range backend", function(t)
         t:ok(OB.IsLineOfSightError(SPELL_FAILED_LINE_OF_SIGHT),
                 "the client's line of sight message is not recognised")
 
-        if OB.HasUnitXP and OB.HasUnitXP() then
+        if type(IsUnitInSight) == "function" then
+            t:note("line of sight: continuous, via a native IsUnitInSight")
+        elseif OB.HasUnitXP and OB.HasUnitXP() then
             t:note("line of sight: continuous, via UnitXP_SP3")
         else
             t:note("line of sight: reactive -- known only after a refused shot,"

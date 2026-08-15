@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.5.2 — in development.**
+> **Version 0.5.3 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -144,8 +144,17 @@ should know how it works before turning it on. Vanilla will not let an addon
 is the client's own refusal: try to shoot, get *Target not in line of sight*, and
 the bar turns violet for a couple of seconds. It cannot tell you in advance, and
 it cannot notice the obstruction clearing, so it goes quiet on its own rather
-than guessing. If **UnitXP_SP3** is installed the check becomes continuous
-instead, and the bar turns the moment you step behind a pillar.
+than guessing.
+
+In practice that is less of a gap than it sounds: while you are actually
+shooting, the client retries and the refusal keeps arriving, so the bar stays
+violet for as long as the wall is there. The gap is standing still and not
+attacking.
+
+Making it *continuous* needs a native query, because no vanilla API can be asked
+this. OmniBars will use either `IsUnitInSight(unitToken)` — a Nampower build
+extended the way `native/` extends it for distance — or **UnitXP_SP3**, whichever
+is present. With one of those the bar turns the moment you step behind a pillar.
 
 Two settings only matter when the above cannot answer, and on most installs they
 never come into play:

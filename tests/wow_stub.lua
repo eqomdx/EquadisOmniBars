@@ -574,6 +574,21 @@ function Stub.SetLineOfSight(present)
     Stub.losAvailable = present and true or false
 end
 
+--[[ A Nampower build extended with a line of sight query, the way this
+     installation's GetUnitDistance was. Shaped to match it: one unit token, and
+     a plain boolean so "cannot tell" and "blocked" stay distinguishable. ]]--
+function Stub.SetNampowerSight(present)
+    if not present then
+        IsUnitInSight = nil
+        return
+    end
+
+    IsUnitInSight = function(unit)
+        if not unit or not UnitExists(unit) then return nil end
+        return Stub.player.inSight ~= false
+    end
+end
+
 --[[ CheckInteractDistance's real thresholds: 1 inspect ~28yd, 2 trade ~11.1yd,
      3 duel ~9.9yd, 4 follow ~28yd.
 

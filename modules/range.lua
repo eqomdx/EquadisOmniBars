@@ -202,17 +202,32 @@ end
      The values are raw DBC, taken before the target's combat reach is added, so
      they disagree with the engine's own boolean check by a yard or two against a
      large target. Good enough to draw with; the boolean is the authority. ]]--
---[[ Is the unit in line of sight, or nil if this client cannot tell.
+--[[ Is the unit in line of sight *continuously*, or nil if this client cannot
+     tell. The reactive latch below is the fallback and answers a weaker
+     question; this is the one that can be polled.
 
-     UnitXP SP3's `inSight`, which SuperCleveRoidMacros uses the same way
-     (Conditionals.lua:7743). It is a *different* client mod from SuperWoW and
-     from Nampower, and it is not installed on the development machine -- so the
-     option that uses this ships off and says so when switched on without it.
+     No stock 1.12 API answers it, so both sources are native extensions:
+
+       IsUnitInSight   a Nampower build extended the way this installation's
+                       GetUnitDistance was -- see native/. Preferred, because
+                       Nampower is already loaded here and UnitXP_SP3 breaks
+                       this client.
+       UnitXP inSight  UnitXP_SP3, which SuperCleveRoidMacros uses the same way
+                       (Conditionals.lua:7743). A *different* client mod from
+                       SuperWoW and from Nampower.
 
      nil and false are deliberately different: nil is "cannot tell", false is
      "definitely blocked". Treating the first as the second would put a wall in
      front of every target on a client that simply has no opinion. ]]--
 function OB.InSight(unit)
+    --[[ Named and shaped to match GetUnitDistance: one unit token, and a plain
+         boolean rather than a number, so "cannot tell" stays distinguishable
+         from "blocked" without a sentinel value. ]]--
+    if type(IsUnitInSight) == "function" then
+        local ok, sight = pcall(IsUnitInSight, unit)
+        if ok and type(sight) == "boolean" then return sight end
+    end
+
     --[[ OB.HasUnitXP, not `type(UnitXP) == "function"`. **Vanilla already owns
          the global name `UnitXP`** -- it is the ordinary experience API -- so the
          plain type check passes on every stock client and this went on to call
@@ -739,7 +754,7 @@ function M:WarnLineOfSightIsReactive()
 
     OB.Print("line of sight is reactive on this client: the bar turns only after"
             .. " a shot is refused for it, and clears a couple of seconds later."
-            .. " UnitXP_SP3 would make it continuous.")
+            .. " Only a native |cff69ccf0IsUnitInSight|r can make it continuous.")
 end
 
 function M:WarnBlindToHostiles()
