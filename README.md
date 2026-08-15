@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.5.9 — in development.**
+> **Version 0.6.0 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -142,6 +142,32 @@ interaction distances.
 Turn the No Target color's opacity down to zero if you would rather the bar
 vanish when you have nothing selected.
 
+### Distance without a distance API
+
+Vanilla has no call that returns how far away a mob is, and the two extensions
+that add one are not on most installs. So with **Nampower** OmniBars measures
+anyway, by asking a question it *can* ask.
+
+`IsSpellInRange` only answers yes or no — but yes or no against a *known
+threshold* is one bit of a distance. Ask about a spell that reaches 35 yards and
+one that reaches 40: no, then yes, puts your target between the two. Enough
+spells and the answer narrows to a band, which is what the label shows:
+`35-40y`, or `100+y` past the longest one.
+
+You do not need to know the spells. Nampower answers about any spell in the game
+when asked by ID, and it ignores who the spell could really be cast on — a rogue
+gets a clean answer out of Fireball and Holy Light alike. OmniBars reads each
+candidate's real range from **your** client at login, so a server that has
+retuned something calibrates to the retuned value, and spells with a dead zone
+are dropped (a threshold that answers "no" from both directions is not a
+threshold).
+
+It shows a band rather than a midpoint on purpose. A midpoint would fit the
+label better and claim a precision that was never measured. An exact source,
+where you have one, replaces the band entirely.
+
+`/eqob rangedebug` prints the rungs your client produced.
+
 **Check Line Of Sight** is off by default and needs nothing installed, but you
 should know how it works before turning it on. Vanilla will not let an addon
 *ask* whether something is in the way — there is no such API — so the only signal
@@ -248,12 +274,9 @@ confirmed in game, not assumed. OmniBars also supports
 object-manager positions. UnitXP_SP3 remains a compatible exact hostile-distance
 source.
 
-So an **exact yard count on a hostile target needs one of those two native
-extensions**. Nampower alone gets the color right on every target type — it
-answers the range question for mobs perfectly well — but it has no number to
-give, and there is no Lua-only substitute. The yards label is simply blank
-there, and OmniBars says so once rather than leaving you watching an empty
-label. The yards label is always
+An **exact** yard count on a hostile target needs one of those two native
+extensions. With only stock Nampower there is still a number, but it is a band —
+see below. The yards label is always
 one exact current distance such as `23y`. The equipped attack's complete usable
 range is shown separately as `[8-30y]`; both labels can be hidden or swapped
 between the left and right sides. Stock Nampower 4.6.2 still provides the hostile

@@ -732,6 +732,24 @@ function OB.RunRangeDebug()
         probe("IsActionInRange(slot)", IsActionInRange, m.actionSlot)
     end
 
+    --[[ The ladder the addon actually built, which is the thing to read first:
+         it is derived from the client's spell data at login, so it says what
+         resolution this install can manage rather than what the candidate list
+         hoped for. Wide gaps here are the argument for adding ids. ]]--
+    local rungs = m.ladder or {}
+    local list = ""
+    for i = 1, table.getn(rungs) do
+        list = list .. (i > 1 and ", " or "") .. tostring(rungs[i].max)
+    end
+    OB.Raw("  ladder rungs (" .. table.getn(rungs) .. "): "
+            .. (list ~= "" and list or "none"))
+
+    local low, high = m.bandLow, m.bandHigh
+    if low then
+        OB.Raw("  measured band: " .. tostring(low) .. "-" .. tostring(high or "")
+                .. "y")
+    end
+
     rangeLadderProbe()
 
     --[[ Every backend asked both questions in turn, against the target actually

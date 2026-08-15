@@ -1522,6 +1522,114 @@ local noState, noYards = OB.modules.distance:Read()
 eq(noState, "inrange", "a client with no exact source still gets a state")
 eq(noYards, nil, "and an empty yard count rather than an invented one")
 
+-- ---------------------------------------------------------------------------
+-- the range ladder: a distance out of a call that only answers yes or no
+-- ---------------------------------------------------------------------------
+
+context = "range ladder: "
+
+--[[ IsSpellInRange is boolean, but a boolean against a *known threshold* is one
+     bit of a distance. Ask about a spell reaching 35 yards and one reaching 40:
+     0 then 1 puts the target between them.
+
+     Three client facts make it work, all verified with /eqob rangedebug against
+     a hostile NPC and all modelled in the stub. Asking by **id** answers for
+     spells the player does not know, where asking by name does not; targeting
+     restrictions are not applied, so a heal answers about a mob; and it answers
+     about hostile units at all, which nothing else on a stock client does. ]]--
+OB = boot("ROGUE", 0, { ranged = "Crossbows", nampower = true, hasTarget = true })
+range = OB.modules.distance
+
+local rungs = range.ladder
+check(table.getn(rungs) > 0, "a ladder is built from the client's spell data")
+
+--[[ Ordered, and **no rung has a minimum range**. Charge is in the candidate
+     list precisely so this is exercised: it reads "out of range" both past 25
+     yards and inside 8, so it is not one threshold but two, and a binary search
+     over answers that are not ordered walks straight past the target. ]]--
+local lastMax, sawCharge = 0, false
+for i = 1, table.getn(rungs) do
+    check(rungs[i].max > lastMax, "rung " .. i .. " is longer than the one before")
+    lastMax = rungs[i].max
+    if rungs[i].id == 100 then sawCharge = true end
+end
+check(not sawCharge, "and Charge, which has a dead zone, is filtered out")
+
+--[[ The band, at distances chosen to land in different gaps between rungs. The
+     35-40 case is the one the game actually produced: Fireball 0, Holy Light 1,
+     on a rogue who knows neither spell. ]]--
+local function bandAt(distance)
+    Stub.player.targetDistance = distance
+    local low, high = OB.LadderBand(range.ladder)
+    return tostring(low) .. "-" .. tostring(high)
+end
+
+eq(bandAt(37), "35-40", "a target past Fireball but inside Holy Light")
+eq(bandAt(3), "0-5", "one inside the shortest rung")
+eq(bandAt(12), "10-15", "and one in the middle")
+eq(bandAt(32), "30-35", "the band the crossbow's own limit falls in")
+
+--[[ Past the longest rung there is no upper bound to give, and saying so is a
+     different answer from any band. ]]--
+Stub.player.targetDistance = 250
+local farLow, farHigh = OB.LadderBand(range.ladder)
+eq(farLow, 100, "past everything askable, the longest rung is the floor")
+eq(farHigh, nil, "with no ceiling invented above it")
+
+--[[ It reaches the screen as a band, written as one. Rounding to a midpoint
+     would fit the label better and claim a precision never measured -- which is
+     the whole reason the ladder exists. ]]--
+range.yards = nil
+range.bandLow, range.bandHigh = 35, 40
+eq(range:YardsText(), "35-40y", "the label says what was actually established")
+
+range.bandLow, range.bandHigh = 100, nil
+eq(range:YardsText(), "100+y", "and admits when it has no upper bound")
+
+--[[ An exact source always wins, and the two are never both on screen claiming
+     different things. ]]--
+range.yards = 23
+eq(range:YardsText(), "23y", "an exact distance supersedes the band")
+
+--[[ End to end: a hostile target on a client with no exact-distance source at
+     all -- which is this installation -- now gets a number where it used to get
+     an empty label. ]]--
+OB = boot("ROGUE", 0, { ranged = "Crossbows", nampower = true, hasTarget = true })
+range = OB.modules.distance
+Stub.player.targetDistance = 37
+Stub.Tick(0.1, 6)
+eq(OB.UnitDistance("target"), nil, "nothing here can measure exactly")
+eq(range.bandLow, 35, "yet the ladder still brackets the target")
+eq(range.bandHigh, 40, "from both sides")
+
+--[[ Measured on a slower clock than the colour. Three or four calls into a
+     client mod, ten times a second, to re-establish a band that only moves when
+     a five-yard rung is crossed, is forty calls buying nothing. ]]--
+Stub.player.targetDistance = 12
+Stub.Tick(0.1, 1)
+eq(range.bandLow, 35, "a band is not re-measured on every colour poll")
+Stub.Tick(0.1, 4)
+eq(range.bandLow, 10, "but it does catch up on its own cadence")
+
+--[[ And a target change measures at once rather than showing the previous
+     target's distance until the clock comes round. ]]--
+Stub.player.targetDistance = 3
+Stub.FireEvent("PLAYER_TARGET_CHANGED")
+eq(range.bandLow, nil, "a new target drops the old band immediately")
+Stub.Tick(0.1, 2)
+eq(range.bandHigh, 5, "and measures the new one without waiting")
+
+-- and it stands down the moment something can measure exactly
+OB = boot("ROGUE", 0, { ranged = "Crossbows", nampower = true, hasTarget = true,
+                        nampowerDistance = true })
+range = OB.modules.distance
+Stub.player.targetDistance = 37
+Stub.Tick(0.1, 6)
+eq(range.bandLow, nil, "an exact source leaves no band behind")
+near(range.yards, 37, 0.01, "and supplies the number itself")
+
+context = "distance backend: "
+
 --[[ The action backend **finds** its slot rather than being told.
 
      It used to be two settings: a 0-120 slider, and a "capture the next action

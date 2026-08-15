@@ -323,6 +323,153 @@ function OB.SpellRange(name)
 end
 
 -- ---------------------------------------------------------------------------
+-- the range ladder
+--
+-- A distance, on a client that has no distance API, out of a call that only
+-- answers yes or no.
+--
+-- IsSpellInRange is boolean, but a boolean against a *known threshold* is one
+-- bit of a distance. Ask about a spell that reaches 35 yards and one that
+-- reaches 40: 0 then 1 puts the target between them. Enough thresholds and the
+-- answer narrows to a band.
+--
+-- Three facts from the client make it work, all verified with /eqob rangedebug
+-- rather than assumed, and the whole idea collapses without any of them:
+--
+--   * **Asking by id works for spells you do not know.** By name it fails --
+--     Nampower says so outright and tells you to use the id instead. A rogue
+--     got clean answers for Fireball, Holy Light and Hunter's Mark.
+--   * **Targeting restrictions are not applied.** Holy Light, a heal, answered
+--     about a hostile mob. So any spell is a plain distance threshold, and the
+--     ladder does not need one set for friends and another for enemies.
+--   * **It answers about hostile units at all**, which nothing else on a stock
+--     client does. CheckInteractDistance returns nil for anything attackable
+--     and SuperWoW will not give coordinates for one.
+--
+-- What it cannot do is produce a number. The output is a band -- "30-35y" --
+-- and that is reported honestly rather than dressed up as a reading.
+-- ---------------------------------------------------------------------------
+
+--[[ Candidate rungs, as spell ids.
+
+     **None of these is trusted.** Each is looked up in the client's own spell
+     data at login and kept only if that data says it is usable; a wrong id
+     resolves to nothing and is dropped, and a right id whose range Turtle has
+     changed calibrates to the changed value. So the list can be generous, wrong
+     in places, and it costs nothing to add to.
+
+     Which is the point: 25, 45 and 50 yard rungs would fill the two gaps this
+     list leaves, and finding spells at those ranges is a matter of adding ids
+     here rather than of changing any code. ]]--
+local LADDER_IDS = {
+    -- verified in game, with the ranges the client reported
+    2974,   -- Wing Clip, 5
+    853,    -- Hammer of Justice, 10
+    19503,  -- Scatter Shot, 15
+    5782,   -- Fear, 20
+    116,    -- Frostbolt, 30
+    133,    -- Fireball, 35
+    635,    -- Holy Light, 40
+    1130,   -- Hunter's Mark, 100
+
+    --[[ Unverified, and here to be tried. Any that resolve to a range the list
+         above does not already cover make the ladder finer; any that do not
+         resolve, or that duplicate a range already present, are dropped without
+         comment. Adding a wrong id here cannot break anything. ]]--
+    921,    -- Pick Pocket
+    1725,   -- Distract
+    20271,  -- Judgement
+    5019,   -- Shoot (wand)
+    2764,   -- Throw
+    3044,   -- Arcane Shot
+    136,    -- Mend Pet
+    982,    -- Revive Pet
+    1064,   -- Chain Heal
+    2050,   -- Lesser Heal
+    6197,   -- Eagle Eye
+    6196,   -- Far Sight
+}
+
+--[[ Build the ladder from the client's own spell data.
+
+     Run once, at login. Two filters, and the first is the one that matters:
+
+     **A rung must have no minimum range.** Charge reads "out of range" both past
+     25 yards and inside 8, so it is not one threshold but two, and a search that
+     assumed the answers were ordered would walk straight past the target. Its id
+     is in the candidate list deliberately, so that this filter is exercised
+     rather than trusted.
+
+     The second is housekeeping: one rung per distinct maximum, because two
+     spells that reach the same distance ask the same question twice. ]]--
+function OB.BuildRangeLadder()
+    local rungs = {}
+
+    if type(GetSpellRecField) ~= "function" then return rungs end
+    if type(GetSpellRangeData) ~= "function" then return rungs end
+    if type(IsSpellInRange) ~= "function" then return rungs end
+
+    local seen = {}
+
+    for i = 1, table.getn(LADDER_IDS) do
+        local id = LADDER_IDS[i]
+
+        local okIndex, index = pcall(GetSpellRecField, id, "rangeIndex")
+        if okIndex and index then
+            local okRange, minRange, maxRange = pcall(GetSpellRangeData, index)
+
+            if okRange and type(maxRange) == "number" and maxRange > 0
+                    and (minRange or 0) == 0 and not seen[maxRange] then
+                seen[maxRange] = true
+                table.insert(rungs, { id = id, max = maxRange })
+            end
+        end
+    end
+
+    table.sort(rungs, function(a, b) return a.max < b.max end)
+    return rungs
+end
+
+--[[ Narrow the target's distance to a band, as `low, high`.
+
+     `high` is nil past the longest rung -- "further than we can ask", which is
+     an honest answer and a different one from any band.
+
+     A binary search rather than a walk: eight rungs cost three calls instead of
+     eight, and each call crosses into a client mod. The invariant is the usual
+     one -- everything below `low` has answered "in range", everything at or
+     above `high` has answered "out of range" -- and it holds only because the
+     no-minimum filter above guarantees the answers are ordered. ]]--
+function OB.LadderBand(rungs)
+    local count = table.getn(rungs)
+    if count == 0 then return nil, nil end
+
+    local lo, hi = 1, count
+
+    while lo < hi do
+        local mid = math.floor((lo + hi) / 2)
+
+        local ok, result = pcall(IsSpellInRange, rungs[mid].id, "target")
+        if not ok or result == nil or result == -1 then return nil, nil end
+
+        if result == 1 then hi = mid else lo = mid + 1 end
+    end
+
+    --[[ `lo` is now the shortest rung that reaches. One confirming call, because
+         the loop never tests the final candidate: with every rung answering
+         "out of range" the search converges on the longest one without ever
+         having asked it. ]]--
+    local ok, result = pcall(IsSpellInRange, rungs[lo].id, "target")
+    if not ok or result == nil or result == -1 then return nil, nil end
+
+    -- past everything we can ask about
+    if result ~= 1 then return rungs[count].max, nil end
+
+    if lo == 1 then return 0, rungs[1].max end
+    return rungs[lo - 1].max, rungs[lo].max
+end
+
+-- ---------------------------------------------------------------------------
 -- backends
 -- ---------------------------------------------------------------------------
 
@@ -475,6 +622,11 @@ OB.rangeBackends.bands = {
      fixed interval keeps a tickly module cheap; a target change resets the timer
      so the first reading on a new target is immediate. ]]--
 local POLL = 0.1
+
+--[[ The ladder's own, slower cadence. A band costs three or four calls into a
+     client mod and only changes when a five-yard rung is crossed, so it does not
+     need the colour's ten-a-second. ]]--
+local LADDER_POLL = 0.25
 
 local M = OB.RegisterModule({
     id = "distance",
@@ -693,6 +845,9 @@ end
 function M:Probe()
     self:ScanWeapon()
 
+    -- built from the client's own spell data, so a login is the moment to do it
+    self.ladder = OB.BuildRangeLadder()
+
     local chosen, complaint = self:SelectBackend()
 
     --[[ The complaint is tracked separately from the backend, because the usual
@@ -796,6 +951,32 @@ function M:Read()
          the colour. ]]--
     if not yards then yards = OB.UnitDistance("target") end
 
+    --[[ Failing an exact source, narrow it to a band.
+
+         Deliberately last, and deliberately not a backend. The ladder is a
+         *distance* source, not a state source: the state is already correct
+         everywhere -- Nampower's check on the equipped weapon accounts for the
+         target's combat reach and the weapon's own minimum, which no
+         reconstruction from rungs would match -- and the only thing missing was
+         a number. Keeping the two apart means the ladder cannot make a working
+         colour worse.
+
+         Cleared when an exact source answered, so the two can never both be on
+         screen claiming different things.
+
+         Measured on its own slower clock. Each band costs three or four calls
+         into a client mod, and at the ten-a-second the colour is read that is
+         forty; a band only changes when you cross a rung five yards away, so
+         asking that often buys nothing. A target change resets the clock, so the
+         first reading on a new target is still immediate. ]]--
+    if yards or not self:Config().showText or not self.ladder then
+        self.bandLow, self.bandHigh = nil, nil
+
+    elseif not self.nextLadder or GetTime() >= self.nextLadder then
+        self.nextLadder = GetTime() + LADDER_POLL
+        self.bandLow, self.bandHigh = OB.LadderBand(self.ladder)
+    end
+
     --[[ A hostile target with a state but no number is its own complaint, and a
          different one from having no state at all.
 
@@ -805,7 +986,7 @@ function M:Read()
          absent or friendly-only. Saying "range does not work on hostiles" there
          would be wrong; saying nothing leaves someone watching a label that is
          blank on the only targets they care about. ]]--
-    if not yards and self:Config().showText
+    if not yards and not self.bandLow and self:Config().showText
             and UnitCanAttack("player", "target") then
         self:WarnNoHostileYardage()
     end
@@ -938,6 +1119,10 @@ function M:OnEvent()
              would paint the new one blocked for the rest of the window on the
              strength of a refusal that had nothing to do with it. ]]--
         self.losBlockedAt = nil
+
+        -- likewise the band, which describes a distance to somebody else
+        self.nextLadder = nil
+        self.bandLow, self.bandHigh = nil, nil
     end
 
     -- every event that gets this far invalidates the reading, and a target
@@ -963,10 +1148,19 @@ function M:OnUpdate(now)
         self.actionSlot = self:FindActionSlot()
     end
 
+    --[[ Read sets the band as a side effect, so it is snapshotted here and
+         compared like the other two. Without that a band that changed while the
+         state and the exact yardage did not would never reach the screen. ]]--
     local state, yards = self:Read()
-    if state == self.state and yards == self.yards then return end
+    local low, high = self.bandLow, self.bandHigh
+
+    if state == self.state and yards == self.yards
+            and low == self.shownLow and high == self.shownHigh then
+        return
+    end
 
     self.state, self.yards = state, yards
+    self.shownLow, self.shownHigh = low, high
     OB.SetDirty(self)
 end
 
@@ -988,11 +1182,23 @@ end
        left    the exact current distance
        right   the equipped attack's complete good range, in brackets
 
-     A boolean range API cannot invent an exact hostile distance. In that case
-     the left side stays empty; an interval belongs only on the right and must
-     never masquerade as the current yard counter. ]]--
+     An exact source fills the left side with a number. Failing that the ladder
+     fills it with a **band**, and the band is written as a band -- "30-35y" --
+     because it is one. Rounding it to a midpoint would fit the label better and
+     claim a precision that was never measured, and the whole reason the ladder
+     exists is that this client cannot measure. The two are never both present:
+     Read clears the band whenever an exact source answered.
+
+     Past the longest rung there is no upper bound to give, so it reads "100+y". ]]--
 function M:YardsText()
     if self.yards then return tostring(OB.Round(self.yards)) .. "y" end
+
+    if self.bandLow and self.bandHigh then
+        return tostring(OB.Round(self.bandLow)) .. "-"
+                .. tostring(OB.Round(self.bandHigh)) .. "y"
+    end
+    if self.bandLow then return tostring(OB.Round(self.bandLow)) .. "+y" end
+
     return ""
 end
 

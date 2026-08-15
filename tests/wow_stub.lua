@@ -753,6 +753,41 @@ end
      a way the real client would not. ]]--
 Stub.spellRanges = {}
 
+--[[ Spells addressed by **id**, which is a different capability from addressing
+     them by name and the whole basis of the range ladder.
+
+     Verified in game. Asking by name for a spell outside your own book fails:
+
+       Unable to determine spell id from spell name, possibly because it isn't
+       in your spell book.  Try IsSpellInRange(SPELL_ID) instead
+
+     Asking by id does not. A rogue got clean 0/1 answers for Fireball, Holy
+     Light, Hammer of Justice and Hunter's Mark -- so the spellbook limit is on
+     the name lookup, not on the range check.
+
+     Two further rules come from the same run, and the ladder depends on both:
+
+       * targeting restrictions are **not** applied. Holy Light, a heal,
+         answered about a hostile mob. Any spell is therefore usable as a plain
+         distance threshold regardless of who it could really be cast on.
+       * the ranges are the classic vanilla numbers. Turtle has retuned none of
+         the nine that were checked.
+
+     These are the ids and ranges as the client reported them. ]]--
+Stub.spellById = {
+    [2974]  = { 0, 5,   "Wing Clip" },
+    [853]   = { 0, 10,  "Hammer of Justice" },
+    [19503] = { 0, 15,  "Scatter Shot" },
+    [5782]  = { 0, 20,  "Fear" },
+    [116]   = { 0, 30,  "Frostbolt" },
+    [133]   = { 0, 35,  "Fireball" },
+    [635]   = { 0, 40,  "Holy Light" },
+    [1130]  = { 0, 100, "Hunter's Mark" },
+
+    -- the dead zone, kept so the ladder has to prove it filters it out
+    [100]   = { 8, 25,  "Charge" },
+}
+
 function Stub.SetNampower(present)
     if not present then
         GetSpellIdForName = nil
@@ -778,11 +813,21 @@ function Stub.SetNampower(present)
     -- the range index is the spell id here; the indirection exists on the real
     -- client and is modelled only so the addon has to make both calls
     GetSpellRecField = function(id, field)
+        local fixed = Stub.spellById[id]
+        if fixed then
+            if field == "name" then return fixed[3] end
+            if field == "rangeIndex" then return id end
+            return nil
+        end
+
         if field ~= "rangeIndex" then return nil end
         return id
     end
 
     GetSpellRangeData = function(index)
+        local fixed = Stub.spellById[index]
+        if fixed then return fixed[1], fixed[2], 0, fixed[3] end
+
         local name = names[index]
         if not name then return nil end
         local r = Stub.spellRanges[name]
@@ -794,6 +839,18 @@ function Stub.SetNampower(present)
          stub that insisted on an id made the whole spell backend look broken
          while the real one would have worked. ]]--
     IsSpellInRange = function(spell, unit)
+        --[[ A fixed id first. No spellbook check and no targeting check: both
+             were verified absent in game, and the ladder is built on their
+             absence. ]]--
+        local fixed = Stub.spellById[spell]
+        if fixed then
+            if not Stub.player.hasTarget then return -1 end
+
+            local d = Stub.player.targetDistance or 0
+            if d < fixed[1] or d > fixed[2] then return 0 end
+            return 1
+        end
+
         local name = names[spell]
         if not name and Stub.spellRanges[spell] then name = spell end
         if not name then return nil end
