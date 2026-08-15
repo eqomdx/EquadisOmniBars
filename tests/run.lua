@@ -1564,6 +1564,19 @@ eq(range.actionSlot, nil, "and the event alone does not sweep")
 Stub.Tick(0.5, 8)
 eq(range.actionSlot, 64, "but the deferred rescan finds it once the bars settle")
 
+--[[ And a login queues that sweep on its own, without waiting for a button to
+     move. Relying on the event alone meant a login that scanned a half-built bar
+     and then sat still never looked again -- observed in game as a slot found on
+     one session and missing on the next with nothing changed in between. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows" })
+range = OB.modules.distance
+Stub.actionBar[64] = "Auto Shot"
+eq(range.actionSlot, nil, "the login sweep can miss a bar still populating")
+
+Stub.FireEvent("PLAYER_ENTERING_WORLD")
+Stub.Tick(0.5, 8)
+eq(range.actionSlot, 64, "and a second sweep follows without any button moving")
+
 --[[ The *player's* auto-attack, not any ranged spell that happens to be bound.
      A warrior with a gun fires Shoot Gun, so a bar holding Auto Shot is
      somebody else's button and watching it would read a hunter's range. ]]--

@@ -912,6 +912,17 @@ function M:OnEvent()
     elseif event == "PLAYER_ENTERING_WORLD" then
         self:Probe()
 
+        --[[ And queue a second sweep a moment later, unconditionally.
+
+             Probe scans the bars immediately, which is the run most likely to
+             see a half-built bar. Relying on ACTIONBAR_SLOT_CHANGED to correct
+             it only works if a button *subsequently* moves -- so a login that
+             failed and then sat still never looked again, which is a slot found
+             on one session and missing on the next with nothing changed in
+             between. ]]--
+        self.actionScanDue = true
+        self.lastActionScan = nil
+
     elseif event == "ACTIONBAR_SLOT_CHANGED" then
         --[[ Marked, not scanned. Two reasons, and both are about when this
              fires: it arrives once per button while the bars populate at login,
