@@ -133,22 +133,36 @@ end
      every stock client and means nothing. SP3 replaces that function with a
      dispatcher taking a command name.
 
-     The discriminator is therefore a **negative** one, and it has to be: asking
-     SP3's questions of the stock API and shape-checking the answers is not
-     enough, because "0" is a plausible shape for a distance. So ask the *stock*
-     question instead. `UnitXP("player")` returns a number on a stock client --
-     zero at max level, but still a number -- and "player" is not one of SP3's
-     commands, so a number back is proof this is the experience API and not the
-     mod. ]]--
+     The discriminator has to be a **positive** one, and this is the second
+     attempt at it. The first asked the *stock* question -- `UnitXP("player")`,
+     concluding "this is the experience API" if a number came back. That was a
+     bet on SP3 rejecting a unit token, and it is the wrong bet: SP3 is a
+     compatible replacement, so it can perfectly well pass an unrecognised
+     command through to the function it displaced. On such a build the probe saw
+     a number, concluded "stock", and switched the extension off on a machine
+     where it was installed and working.
+
+     So probe on a **shape the experience API cannot produce**. It returns a
+     number or nothing; there is no path through it that yields a boolean. A
+     boolean back is therefore proof that the dispatcher answered, and it does
+     not depend on guessing what SP3 does with input meant for something else. ]]--
 function OB.HasUnitXP()
     if type(UnitXP) ~= "function" then return false end
 
-    local ok, xp = pcall(UnitXP, "player")
-    if ok and type(xp) == "number" then return false end
+    local ok, sight = pcall(UnitXP, "inSight", "player", "player")
+    if ok and type(sight) == "boolean" then return true end
 
-    -- SP3 accepts `nop` as a capability probe. Anything reaching here has
-    -- already failed to behave like the stock API.
-    return pcall(UnitXP, "nop", "nop") and true or false
+    --[[ An SP3 build too old for inSight. Weaker, so it is second and it is
+         guarded: distance from yourself to yourself is exactly zero, and the
+         stock API has to have *failed* to answer its own question first. Without
+         that guard a client whose UnitXP returns 0 for an unknown unit would be
+         read as SP3, and every distance would come back 0 -- a bar stuck on "too
+         close" is worse than one that admits it cannot measure. ]]--
+    local okX, xp = pcall(UnitXP, "player")
+    if okX and type(xp) == "number" then return false end
+
+    local okD, yards = pcall(UnitXP, "distanceBetween", "player", "player")
+    return (okD and type(yards) == "number" and yards == 0) and true or false
 end
 
 --[[ A true distance in yards, or nil.
@@ -331,7 +345,22 @@ OB.rangeBackends.precise = {
     id = "precise",
     name = "Precise Distance",
 
-    Available = function(m) return OB.UnitDistance("player") ~= nil end,
+    --[[ Asked about the **target** whenever there is one.
+
+         It used to ask only about "player", and that is a question every client
+         answers yes to: you are always friendly to yourself, so SuperWoW's
+         friendly-only UnitPosition satisfied it. The backend was then selected,
+         declined for every hostile unit, and the cascade quietly carried the
+         state on a weaker backend that has no yardage to give. The bar looked
+         chosen-and-working while the number it exists to show appeared on
+         friendly targets only -- which is exactly what was reported.
+
+         "player" remains the fallback because Probe runs with no target, and a
+         capability question has to be answerable then too. ]]--
+    Available = function(m)
+        if UnitExists("target") then return OB.UnitDistance("target") ~= nil end
+        return OB.UnitDistance("player") ~= nil
+    end,
 
     Read = function(m)
         local yards = OB.UnitDistance("target")
@@ -742,6 +771,18 @@ function M:Read()
         self.answered = nil
         return nil, nil
     end
+
+    --[[ **The yard count is a separate question from the state**, and it is asked
+         separately.
+
+         It used to come only from whichever backend produced the state, so a
+         client that could measure the distance perfectly well showed no number
+         whenever the engine's boolean check happened to answer first -- and the
+         boolean check is the *preferred* backend on any Nampower install. The
+         readout was blank on exactly the targets Nampower is best at. Asking
+         here means an exact source is used wherever it exists, whatever decided
+         the colour. ]]--
+    if not yards then yards = OB.UnitDistance("target") end
 
     --[[ Line of sight overrides everything: a target you cannot see is one you
          cannot shoot, whatever the distance says. Applied after the backends

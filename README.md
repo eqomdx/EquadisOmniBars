@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.5.4 — in development.**
+> **Version 0.5.5 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -197,8 +197,16 @@ loads, once. RogueBars' own saved variables are never modified.
 /eqob restack                  re-stack the occupied bars
 /eqob test                     preview every bar without a target
 /eqob selftest                 check the addon against your client
+/eqob rangedebug               every value behind the distance readout
 /eqob reset                    this profile   ( reset all for every profile )
 ```
+
+`/eqob rangedebug` is for when the Distance bar disagrees with your eyes. Target
+something, run it, and it prints every raw client answer behind the reading —
+which extensions replied and with what, what each of the four backends says about
+*that* unit, and the state and yardage that came out. It also names the target
+type, so a run against a friendly NPC and a run against an enemy player can be
+compared line for line.
 
 `/eqob selftest` is the one to run first if something looks wrong. It verifies
 that every API each module needs exists on your client, that the bars were built

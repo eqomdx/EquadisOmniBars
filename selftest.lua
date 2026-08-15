@@ -543,6 +543,45 @@ local function positionResult(token)
     return tostring(x) .. ", " .. tostring(y) .. ", " .. tostring(z)
 end
 
+--[[ Which of the five kinds of target this is, in the same words the report was
+     asked for. The classification is printed rather than used: the point is that
+     a run can be filed against the target type it came from, so five runs make a
+     table instead of five opinions. ]]--
+local function targetKind()
+    if not UnitExists("target") then return "none" end
+
+    local who = UnitIsPlayer("target") and "player" or "NPC"
+
+    if UnitCanAttack("player", "target") then
+        --[[ Attackable is not the same as hostile. A neutral mob can be attacked
+             and will not attack back, which is exactly the case that has to be
+             told apart from an enemy here. ]]--
+        if UnitCanAttack("target", "player") then return "enemy " .. who end
+        return "neutral " .. who
+    end
+
+    if UnitIsFriend("player", "target") then return "friendly " .. who end
+    return "other " .. who
+end
+
+--[[ Every raw probe, one per line, named after the call that produced it. A
+     value here is evidence; anything derived from it is not. ]]--
+local function probe(label, fn, a, b, c)
+    if type(fn) ~= "function" then
+        OB.Raw("    " .. label .. ": API missing")
+        return
+    end
+
+    local ok, value = pcall(fn, a, b, c)
+    if not ok then
+        OB.Raw("    " .. label .. ": " .. RED .. "ERROR " .. WHITE .. tostring(value))
+        return
+    end
+
+    OB.Raw("    " .. label .. ": " .. tostring(value)
+            .. " " .. GREY .. "(" .. type(value) .. ")" .. WHITE)
+end
+
 function OB.RunRangeDebug()
     local m = OB.modules.distance
     if not m then
@@ -558,11 +597,28 @@ function OB.RunRangeDebug()
     end
     local guid = superGuid or nampowerGuid
 
-    OB.Raw(GREY .. "OmniBars range debug " .. WHITE .. OB.version)
+    OB.Raw(GREY .. "OmniBars range debug " .. WHITE .. OB.version
+            .. GREY .. "  target type: " .. WHITE .. targetKind())
     OB.Raw("  target: exists=" .. tostring(exists)
-            .. " attackable=" .. tostring(UnitCanAttack("player", "target")))
+            .. " name=" .. tostring(UnitName("target"))
+            .. " attackable=" .. tostring(UnitCanAttack("player", "target"))
+            .. " attacksYou=" .. tostring(UnitCanAttack("target", "player")))
     OB.Raw("  GUID: UnitExists=" .. tostring(superGuid)
             .. " GetUnitGUID=" .. tostring(nampowerGuid))
+
+    --[[ The extension probes, before anything that depends on them. Getting
+         these wrong is what disables a working install, so they are reported as
+         what was asked and what came back rather than as a verdict. ]]--
+    OB.Raw("  " .. GREY .. "-- client extensions --" .. WHITE)
+    OB.Raw("    UnitXP global: " .. type(UnitXP)
+            .. "  OB.HasUnitXP()=" .. tostring(OB.HasUnitXP()))
+    probe("UnitXP('player')", UnitXP, "player")
+    probe("UnitXP('inSight','player','player')", UnitXP, "inSight", "player", "player")
+    probe("UnitXP('inSight','player','target')", UnitXP, "inSight", "player", "target")
+    probe("UnitXP('distanceBetween','player','player')",
+            UnitXP, "distanceBetween", "player", "player")
+    probe("UnitXP('distanceBetween','player','target')",
+            UnitXP, "distanceBetween", "player", "target")
     OB.Raw("  UnitPosition player: " .. positionResult("player"))
     OB.Raw("  UnitPosition target: " .. positionResult("target"))
     OB.Raw("  UnitPosition GUID: " .. positionResult(guid))
@@ -586,10 +642,46 @@ function OB.RunRangeDebug()
             .. tostring(m.spellId) .. " good=" .. tostring(m.minRange)
             .. "-" .. tostring(m.maxRange) .. " IsSpellInRange=" .. rangeResult)
 
+    --[[ The coarse fallback, spelled out. CheckInteractDistance answers nil for
+         anything attackable, which is the single fact behind "it only works on
+         friendly targets" -- so it is worth seeing rather than inferring. ]]--
+    OB.Raw("  " .. GREY .. "-- CheckInteractDistance --" .. WHITE)
+    probe("index 1 (inspect ~28y)", CheckInteractDistance, "target", 1)
+    probe("index 3 (duel ~9.9y)", CheckInteractDistance, "target", 3)
+
+    OB.Raw("  action slot: " .. tostring(m.actionSlot))
+    if m.actionSlot then
+        probe("IsActionInRange(slot)", IsActionInRange, m.actionSlot)
+    end
+
+    --[[ Every backend asked both questions in turn, against the target actually
+         selected. "available but declines" and "never considered" look identical
+         from the outside and have completely different fixes. ]]--
+    OB.Raw("  " .. GREY .. "-- backends, against this target --" .. WHITE)
+    for i = 1, table.getn(OB.rangeOrder) do
+        local backend = OB.rangeBackends[OB.rangeOrder[i]]
+
+        local okA, available = pcall(backend.Available, m)
+        local line = "    " .. backend.id .. ": available="
+                .. (okA and tostring(available) or (RED .. "ERROR" .. WHITE))
+
+        local okR, state, yards = pcall(backend.Read, m)
+        if okR then
+            line = line .. " state=" .. tostring(state) .. " yards=" .. tostring(yards)
+        else
+            line = line .. " read=" .. RED .. "ERROR " .. WHITE .. tostring(state)
+        end
+
+        if backend == m.backend then line = line .. GREY .. "  <- selected" .. WHITE end
+        OB.Raw(line)
+    end
+
     local state, yards = m:Read()
+    OB.Raw("  " .. GREY .. "-- result --" .. WHITE)
     OB.Raw("  selected=" .. tostring(m.backend and m.backend.id)
             .. " answered=" .. tostring(m.answered and m.answered.id)
-            .. " state=" .. tostring(state) .. " yards=" .. tostring(yards))
+            .. " state=" .. tostring(state) .. " yards=" .. tostring(yards)
+            .. " shown=" .. tostring(m.frame and m.frame:IsShown()))
 end
 
 OB.commands.rangedebug = {

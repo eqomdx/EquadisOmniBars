@@ -114,6 +114,7 @@ local function boot(class, powerType, opts)
          deliberate: the addon spent three versions assuming UnitXP was present
          when it was not, and a harness where the good path is always available
          would have hidden that rather than caught it. ]]--
+    Stub.unitXPPassthrough = opts.unitXPPassthrough and true or false
     Stub.SetUnitXP(opts.unitXP)
     Stub.SetLineOfSight(opts.lineOfSight)
     Stub.SetNampowerSight(opts.nampowerSight)
@@ -1411,10 +1412,39 @@ OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true,
 eq(OB.modules.distance.backend.id, "precise",
         "and a position API beats it for a friendly unit it can measure")
 
+--[[ **The same client, pointed at something it cannot measure.**
+
+     SuperWoW's UnitPosition is friendly-only, and the availability question used
+     to be asked about "player" -- which every client answers yes to, because you
+     are always friendly to yourself. So precise was selected, declined for the
+     hostile target, and the cascade carried the state on a backend with no
+     yardage to give. Chosen-and-working on the panel, no number on screen: the
+     reported "only works on friendly targets", exactly. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true,
+                         hasTarget = true, friendlyTarget = false })
+eq(OB.modules.distance.backend.id, "spell",
+        "a friendly-only measurer is not chosen for a hostile target")
+
 -- UnitXP is the older distance source and still works where it exists
 OB = boot("HUNTER", 0, { ranged = "Bows", unitXP = true })
 eq(OB.modules.distance.backend.id, "precise", "UnitXP measures too")
 check(OB.HasUnitXP(), "the UnitXP_SP3 command probe recognises the extension")
+
+--[[ **And recognises a build that passes unit tokens through.**
+
+     SP3 replaces a global vanilla already owns, so a compatible build answering
+     `UnitXP("player")` with the player's experience is entirely reasonable. A
+     probe that concluded "stock API" from that number switched the extension off
+     on a machine where it was installed and working -- which is what "we should
+     have UnitXP_SP3 working now" turned out to mean.
+
+     So the probe is on a shape the experience API cannot produce: it returns a
+     number or nothing, never a boolean. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows", unitXP = true, lineOfSight = true,
+                         unitXPPassthrough = true })
+eq(UnitXP("player"), Stub.player.xp or 0, "this build answers the stock question")
+check(OB.HasUnitXP(), "and is still recognised as the extension")
+eq(OB.modules.distance.backend.id, "precise", "so it is still used to measure")
 
 -- a forced backend that cannot run here falls back rather than drawing nothing
 OB = boot("HUNTER", 0, { ranged = "Bows" })
@@ -1437,6 +1467,38 @@ chatBefore = table.getn(Stub.chat)
 OB.modules.distance:Probe()
 Stub.FireEvent("PLAYER_ENTERING_WORLD")
 eq(table.getn(Stub.chat), chatBefore, "but only once")
+
+--[[ **Yardage is a separate question from the state, and is asked separately.**
+
+     It used to come only from whichever backend produced the state. On a
+     Nampower client the engine's boolean check is the preferred backend, so it
+     answered first, every time -- and it has no number to give. The readout sat
+     blank on a client that could measure the distance perfectly well, which is
+     the other half of "yardage is not working across all target types".
+
+     Here the boolean check decides the colour and the exact source still fills
+     in the number. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, nampowerDistance = true,
+                         hasTarget = true })
+range = OB.modules.distance
+OB.profile.modules.distance.backend = "spell"
+range:Probe()
+eq(range.backend.id, "spell", "the boolean backend is the one selected")
+
+Stub.player.targetDistance = 22
+local spellState, spellYards = range:Read()
+eq(spellState, "inrange", "and it is what decides the state")
+eq(range.answered.id, "spell", "on its own terms")
+near(spellYards, 22, 0.01, "but the yard count comes from the exact source anyway")
+
+--[[ And nothing is invented where nothing can be measured: a client with no
+     exact source still gets a state, and an empty number rather than a made-up
+     one. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, hasTarget = true })
+Stub.player.targetDistance = 22
+local noState, noYards = OB.modules.distance:Read()
+eq(noState, "inrange", "a client with no exact source still gets a state")
+eq(noYards, nil, "and an empty yard count rather than an invented one")
 
 --[[ The action backend **finds** its slot rather than being told.
 

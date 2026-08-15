@@ -694,9 +694,20 @@ function Stub.SetUnitXP(present)
             return Stub.player.inSight ~= false
         end
 
-        --[[ A dispatcher, so an unrecognised command is nothing rather than
-             zero. This is what a `UnitXP("player")` probe leans on: the stock
-             API answers it with a number and SP3 does not answer it at all. ]]--
+        --[[ What an unrecognised command does, and the answer is "it depends on
+             the build" -- which is the whole reason the addon must not probe
+             here.
+
+             SP3 is a *compatible replacement* for a global vanilla already owns,
+             so a build that passes unit tokens through to the function it
+             displaced is entirely reasonable. `Stub.unitXPPassthrough` models
+             that build. A probe that concluded "this is the stock API" from a
+             number came back saw one on this client and switched a working
+             extension off. ]]--
+        if Stub.unitXPPassthrough and command == "player" then
+            return Stub.player.xp or 0
+        end
+
         return nil
     end
 end
