@@ -384,46 +384,89 @@ local t = { start = 0, period = 2 }
 OB.tickers.pulse.Reset(t, 100)
 eq(t.start, 100, "reset anchors to now")
 
+--[[ The first gain after a reset anchors the cycle, because there is nothing to
+     compare it to yet. From then on there is. ]]--
+check(OB.tickers.pulse.Observe(t, 102, 60, 40), "the first gain anchors")
+eq(t.start, 102, "and the cycle starts there")
+
 --[[ **Energy does not only arrive on the tick, and a gain that is not the tick
      must not move the phase.**
 
-     A rogue with Vigor gets 2 energy back on every poison application;
-     Relentless Strikes pays 25 on a finisher; Thistle Tea hands over 100. Each
-     one used to re-anchor the cycle, so the sweep restarted mid-beat and the
-     spark stopped predicting the one thing it exists to predict -- worst while
-     actually fighting, which is the only time anyone watches it.
-
-     The server's energy loop is a fixed two seconds and nothing a player does
-     shifts it. So a gain only counts when the cycle says a tick is due. ]]--
-check(not OB.tickers.pulse.Observe(t, 100.7, 42, 40),
+     A rogue with Vigor gets 2 energy back on every poison application. Each one
+     used to re-anchor the cycle, so the sweep restarted mid-beat and the spark
+     stopped predicting the one thing it exists to predict -- worst while
+     actually fighting, which is the only time anyone watches it. ]]--
+check(not OB.tickers.pulse.Observe(t, 102.7, 62, 60),
         "a two-energy refund mid-cycle is not a tick")
-eq(t.start, 100, "and leaves the phase exactly where it was")
+eq(t.start, 102, "and leaves the phase exactly where it was")
 
-check(not OB.tickers.pulse.Observe(t, 101.4, 142, 42),
-        "nor is a hundred from Thistle Tea")
-eq(t.start, 100, "however large the gain")
+check(not OB.tickers.pulse.Observe(t, 103.4, 64, 62),
+        "nor is the next one")
+eq(t.start, 102, "however many of them arrive")
 
-check(OB.tickers.pulse.Observe(t, 102, 60, 40), "a gain on the beat is the tick")
-eq(t.start, 102, "and re-anchors the cycle")
+check(OB.tickers.pulse.Observe(t, 104, 84, 64), "a gain on the beat is the tick")
+eq(t.start, 104, "and re-anchors the cycle")
 
--- capped: no gain for six seconds, so the cycle advances by whole periods and
+-- capped: no gain for four seconds, so the cycle advances by whole periods and
 -- the phase stays on the beat rather than restarting off it
 check(not OB.tickers.pulse.Observe(t, 108, 100, 100), "no gain is not a tick")
 eq(t.start, 108, "capped cycles advance by whole periods")
 near((108 - t.start) / t.period, 0, 0.0001, "phase stays on the beat")
 
---[[ It self-corrects. Anchored to the wrong beat -- a first observation that
-     happened to be a refund -- the real tick keeps arriving every two seconds,
-     and the first one to land past the wrong boundary takes the phase back. So
-     an error lasts at most one cycle rather than until the next reset. ]]--
-local wrong = { start = 0, period = 2 }
-OB.tickers.pulse.Reset(wrong, 200.5)
-check(OB.tickers.pulse.Observe(wrong, 202.5, 60, 40),
-        "a tick past the wrong boundary is still believed")
-eq(wrong.start, 202.5, "so a mis-anchored cycle recovers on its own")
+--[[ **The desync, which was the roll-forward eating the anchor.**
 
--- ---------------------------------------------------------------------------
--- 5. the five second rule
+     `start` is the drawing anchor and rolls forward whenever a period elapses,
+     so the sweep keeps running when nothing is observed. Measuring "how long
+     since the last tick" from *that* meant the roll happened first: the instant
+     the true interval ran a hair over the assumed two seconds -- which it always
+     does, between server latency and the frame the gain is noticed on -- `start`
+     had already jumped, the real tick read as a few hundredths old, and was
+     rejected. Every tick after it was rejected too, and the cycle free-ran on a
+     perfect two-second beat anchored to one stale observation.
+
+     So the interval is measured from `lastTick`, which only an observation ever
+     moves. Here every tick lands 2.1 seconds apart and every one is believed. ]]--
+local slow = { start = 0, period = 2 }
+OB.tickers.pulse.Reset(slow, 200)
+OB.tickers.pulse.Observe(slow, 200, 40, 20)
+
+local believed, at = 0, 200
+for i = 1, 10 do
+    at = at + 2.1
+
+    -- the frames in between, which are what roll `start` forward
+    OB.tickers.pulse.Observe(slow, at - 0.05, 60, 60)
+
+    if OB.tickers.pulse.Observe(slow, at, 80, 60) then believed = believed + 1 end
+end
+
+eq(believed, 10, "a tick slower than two seconds is believed every time")
+near(slow.start, at, 0.001, "so the cycle stays anchored to the real one")
+
+--[[ And the period is **measured**, not assumed. Two seconds is the number
+     everyone quotes and it is not what a client observes, so rather than pick a
+     better constant the interval between believed ticks is folded into a running
+     estimate -- the same way the rage decay rate is. A server that ticks
+     differently is then something the bar follows rather than argues with. ]]--
+near(slow.period, 2.1, 0.05, "and the estimate follows the real interval")
+
+--[[ A gain bigger than anything seen is believed whatever the timing says,
+     because the timing is only as good as the anchor it came from and a bigger
+     gain proves that anchor was not a full tick.
+
+     This is what rescues a login whose first observation happened to be a
+     refund: the next real tick is ten times larger and takes the phase back at
+     once, rather than over the two cycles the timing test alone would need. ]]--
+local cold = { start = 0, period = 2 }
+OB.tickers.pulse.Reset(cold, 300)
+check(OB.tickers.pulse.Observe(cold, 300.4, 42, 40),
+        "a refund anchors when nothing better is known")
+eq(cold.start, 300.4, "so the phase starts wrong")
+
+check(OB.tickers.pulse.Observe(cold, 301, 62, 42),
+        "and the next real tick is believed despite arriving early")
+eq(cold.start, 301, "taking the phase back immediately")
+
 -- ---------------------------------------------------------------------------
 
 context = "five second rule: "

@@ -30,46 +30,110 @@ OB.tickers = {}
 --[[ Energy and focus: regeneration arrives as a visible pulse, so the cycle can
      be anchored to a real observation.
 
-     When no gain is seen -- capped, or draining faster than it regenerates --
-     the cycle advances by *whole* periods rather than restarting. Restarting
-     would put the sweep off-beat, so the spark would be in the wrong place the
-     moment you dumped energy, which is precisely when it matters. ]]--
+     **Energy does not only arrive on the tick**, and the cycle must not follow
+     anything that is not one.
 
---[[ How close to the predicted boundary a gain has to arrive to be believed as
-     the regeneration tick.
+     A rogue with Vigor gets 2 energy back on each poison application;
+     Relentless Strikes pays 25 on a finisher; Thistle Tea hands over 100. Every
+     one of those used to re-anchor the cycle, so the sweep restarted mid-beat
+     and the spark stopped predicting the thing it exists to predict.
 
-     **Energy does not only arrive on the tick**, and treating every gain as one
-     was the bug. A rogue with Vigor gets 2 energy back on each poison
-     application; Relentless Strikes pays 25 on a finisher; Thistle Tea hands
-     over 100. Every one of those re-anchored the cycle, so the sweep restarted
-     mid-beat and the spark stopped predicting the thing it exists to predict --
-     and worst while actually fighting, which is the only time anyone looks.
+     Two things separate a tick from a talent, and a gain has to survive both.
 
-     The server's energy loop is a fixed two seconds and nothing a player does
-     shifts it. So a gain is only read as the tick when the cycle says a tick is
-     due; anything arriving early is somebody's talent and is allowed to raise
-     the energy without touching the phase.
+     **When.** A tick cannot arrive much sooner than a period after the last one.
+     `lastTick` is what that is measured from -- and it is deliberately a
+     different field from `start`.
 
-     It still self-corrects. If the phase is wrong -- a first observation that
-     happened to be a refund -- the real tick keeps arriving every two seconds
-     and the first one to land past the (wrong) boundary re-anchors, so the error
-     lasts at most one cycle. ]]--
-local PULSE_TOLERANCE = 0.25
+     That distinction is the whole of the desync bug. `start` is the *drawing*
+     anchor and it rolls forward whenever a period elapses, so that the sweep
+     keeps running when nothing is observed. Measuring "how long since the last
+     tick" from it meant the roll happened first: the moment the true interval
+     ran a hair over the assumed two seconds -- which it always does, between
+     server latency and the frame the gain is noticed on -- `start` had already
+     jumped, the real tick read as 0.05s old, and every tick after it was
+     rejected. The cycle then free-ran on a perfect two-second beat anchored to
+     one stale observation and drifted further out with every minute.
+
+     **How much.** A partial gain arriving early is somebody's talent. A partial
+     gain arriving *on* the beat is a real tick against a nearly full bar, which
+     is why the size test only applies while the timing is also suspect.
+
+     The period is **measured, not assumed**. Two seconds is the number everyone
+     quotes and it is not what a client observes; rather than pick a better
+     constant, the interval between believed ticks is folded into a running
+     estimate, the same way the rage decay rate below is. A server that ticks
+     differently, or a haste effect, is then something the bar follows rather
+     than something it argues with. ]]--
+local PULSE_MIN, PULSE_MAX = 1.0, 3.0   -- a plausible energy period, in seconds
+local PULSE_BLEND = 0.25                -- how fast the estimate follows a sample
+
+--[[ A gain this much of a period early cannot be the tick. Loose, because the
+     estimate has to be able to *shorten*: too tight a floor and a client whose
+     real period is below the current estimate rejects every tick and can never
+     learn better. ]]--
+local PULSE_EARLY = 0.75
+
+-- and on the beat, size stops mattering: a small gain there is a full tick
+-- against a nearly full bar
+local PULSE_ONBEAT = 0.9
 
 OB.tickers.pulse = {
     Reset = function(t, now)
         t.start = now
         t.period = 2
+        t.lastTick = nil
+        t.tickSize = nil
     end,
 
     Observe = function(t, now, current, previous)
-        if current > previous
-                and (now - t.start) >= (t.period - PULSE_TOLERANCE) then
-            t.start = now
-            t.period = 2
-            return true
+        local diff = current - previous
+
+        if diff > 0 then
+            local since = t.lastTick and (now - t.lastTick)
+            local early = since and (since < t.period * PULSE_EARLY)
+
+            --[[ The full tick is the largest gain that keeps happening, so the
+                 largest seen is the best estimate of it without knowing the
+                 class, the talents or the server's numbers. ]]--
+            local partial = t.tickSize and (diff < t.tickSize)
+            local offBeat = since and (since < t.period * PULSE_ONBEAT)
+
+            --[[ A gain bigger than anything seen so far is believed whatever the
+                 timing says, because the timing is only as good as the anchor it
+                 came from -- and a bigger gain is proof that anchor was not a
+                 full tick.
+
+                 This is what rescues the first observation after a login or a
+                 form change. There is no history then, so the first gain anchors
+                 the cycle whatever it was; if it was a two-energy refund, the
+                 next real tick is ten times larger and takes the phase back at
+                 once instead of over the two cycles the timing test alone would
+                 need.
+
+                 The price is Thistle Tea: a hundred energy is bigger than any
+                 tick, so it re-anchors and the phase is wrong until the tick
+                 after next. A five minute cooldown costing one cycle is the
+                 right side of this trade against every login costing two. ]]--
+            local biggest = diff > (t.tickSize or 0)
+
+            if biggest or (not early and not (partial and offBeat)) then
+                if since and since >= PULSE_MIN and since <= PULSE_MAX then
+                    t.period = (t.period * (1 - PULSE_BLEND)) + (since * PULSE_BLEND)
+                end
+
+                if diff > (t.tickSize or 0) then t.tickSize = diff end
+
+                t.lastTick = now
+                t.start = now
+                return true
+            end
         end
 
+        --[[ Nothing seen, so the cycle advances by *whole* periods rather than
+             restarting. Restarting would put the sweep off-beat, so the spark
+             would be in the wrong place the moment you dumped energy, which is
+             precisely when it matters. This moves `start` and never `lastTick`:
+             a projection is not an observation. ]]--
         while now >= t.start + t.period do
             t.start = t.start + t.period
         end
@@ -188,7 +252,7 @@ local M = OB.RegisterModule({
 
     options = {
         { "Bar Color", "@variant:color", "color", true },
-        { "Ticker", "@variant:ticker", OB.Enum(
+        { "Ticker Visibility", "@variant:ticker", OB.Enum(
                 { "always", "nofull", "never" },
                 { "Show Always", "Hide When Full", "Never Show" }) },
         { "Ticker Color", "tickerColor", "color", true },

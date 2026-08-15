@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.7.0 — in development.**
+> **Version 0.7.1 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -92,7 +92,10 @@ on the Bars page does it on demand.
 
 **Resource** — every power type from one bar. Energy and focus anchor their
 ticker to the observed regeneration pulse and hold the phase when capped, so the
-spark is in the right place the moment you spend. Mana has no pulse to observe,
+spark is in the right place the moment you spend. The tick interval is
+*measured* rather than assumed to be two seconds — the number everyone quotes is
+not what a client observes — and gains that are not the tick are ignored, so a
+rogue's Vigor refunds and Relentless Strikes do not drag the sweep off the beat. Mana has no pulse to observe,
 so it infers the cycle from the last change: spending opens a five second rule
 window, optionally shaded on the bar as a shrinking region. Rage does not tick,
 but it leaks — an optional marker shows where it will have decayed to a few
