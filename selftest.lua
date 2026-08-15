@@ -795,3 +795,95 @@ OB.commands.rangedebug = {
     help = "report every client value used by the distance readout",
     Run = function(args) OB.RunRangeDebug() end,
 }
+
+--[[ Find every rung the client could possibly offer.
+
+     "Is there a 25 yard rung?" is not a question to answer from memory. The
+     client holds the answer in two tables and will hand both over:
+
+       SpellRange.dbc   every distinct min/max pair in the game, a few dozen rows
+       the spell table  which spells use which of those rows
+
+     So this reads the first to see what bands exist at all, then walks the
+     second to name one spell per band. Anything it prints with a zero minimum is
+     a candidate rung, and adding its id to LADDER_IDS in modules/range.lua makes
+     the readout that much finer.
+
+     The walk is the expensive half and it is why this is a command rather than
+     part of the login probe: thirty thousand ids is a visible pause, worth
+     paying once to answer a question permanently. ]]--
+local SPELL_ID_MAX = 30000
+local RANGE_INDEX_MAX = 64
+
+function OB.RunRangeScan()
+    if type(GetSpellRangeData) ~= "function"
+            or type(GetSpellRecField) ~= "function" then
+        OB.Raw(RED .. "range scan: needs Nampower's spell range APIs")
+        return
+    end
+
+    OB.Raw(GREY .. "OmniBars range scan " .. WHITE .. OB.version
+            .. GREY .. "  (this pauses for a moment)" .. WHITE)
+
+    --[[ Every range row the client has. This alone settles which bands are
+         possible; the spell walk below only puts a name to them. ]]--
+    local wanted, rows = {}, 0
+
+    for index = 1, RANGE_INDEX_MAX do
+        local ok, minRange, maxRange = pcall(GetSpellRangeData, index)
+
+        if ok and type(maxRange) == "number" and maxRange > 0 then
+            rows = rows + 1
+            local usable = (minRange or 0) == 0
+
+            OB.Raw("  index " .. index .. ": " .. tostring(minRange) .. "-"
+                    .. tostring(maxRange)
+                    .. (usable and "" or GREY .. "  (dead zone, unusable)" .. WHITE))
+
+            --[[ A minimum range disqualifies the row outright. A spell that
+                 answers "out of range" from both directions is two thresholds
+                 rather than one, and the binary search assumes one. ]]--
+            if usable then wanted[index] = maxRange end
+        end
+    end
+
+    OB.Raw("  " .. rows .. " range rows, of which "
+            .. GREY .. "the zero-minimum ones are candidate rungs" .. WHITE)
+
+    --[[ One spell per band is all that is needed, so each index is dropped from
+         `wanted` the moment it is claimed and the walk gets cheaper as it goes. ]]--
+    local found, remaining = {}, 0
+    for _ in pairs(wanted) do remaining = remaining + 1 end
+
+    for id = 1, SPELL_ID_MAX do
+        if remaining == 0 then break end
+
+        local ok, index = pcall(GetSpellRecField, id, "rangeIndex")
+        if ok and index and wanted[index] then
+            local okName, name = pcall(GetSpellRecField, id, "name")
+
+            table.insert(found, { max = wanted[index], id = id,
+                                  name = (okName and name) or "?" })
+            wanted[index] = nil
+            remaining = remaining - 1
+        end
+    end
+
+    table.sort(found, function(a, b) return a.max < b.max end)
+
+    OB.Raw("  " .. GREY .. "-- one spell per usable band --" .. WHITE)
+    for i = 1, table.getn(found) do
+        local row = found[i]
+        OB.Raw("    " .. row.max .. "y: id " .. row.id .. "  " .. row.name)
+    end
+
+    if remaining > 0 then
+        OB.Raw("  " .. remaining .. " band(s) had no spell below id "
+                .. SPELL_ID_MAX)
+    end
+end
+
+OB.commands.rangescan = {
+    help = "list every distance band this client could measure, and a spell for each",
+    Run = function(args) OB.RunRangeScan() end,
+}

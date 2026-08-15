@@ -773,20 +773,44 @@ Stub.spellRanges = {}
        * the ranges are the classic vanilla numbers. Turtle has retuned none of
          the nine that were checked.
 
-     These are the ids and ranges as the client reported them. ]]--
-Stub.spellById = {
-    [2974]  = { 0, 5,   "Wing Clip" },
-    [853]   = { 0, 10,  "Hammer of Justice" },
-    [19503] = { 0, 15,  "Scatter Shot" },
-    [5782]  = { 0, 20,  "Fear" },
-    [116]   = { 0, 30,  "Frostbolt" },
-    [133]   = { 0, 35,  "Fireball" },
-    [635]   = { 0, 40,  "Holy Light" },
-    [1130]  = { 0, 100, "Hunter's Mark" },
+     These are the ids and ranges as the client reported them.
 
-    -- the dead zone, kept so the ladder has to prove it filters it out
-    [100]   = { 8, 25,  "Charge" },
+     Modelled the way the client stores it, in **two** tables: a short list of
+     distinct min/max pairs, and spells that point at a row of it by index. That
+     indirection is the whole basis of `/eqob rangescan` -- reading the rows
+     answers "which bands could this client measure" without walking a single
+     spell -- so a stub that collapsed the two into one could not test it. ]]--
+Stub.rangeRows = {
+    { 0, 5 }, { 0, 10 }, { 0, 15 }, { 0, 20 },
+    { 0, 30 }, { 0, 35 }, { 0, 40 }, { 0, 100 },
+
+    --[[ The dead zone Charge uses, kept so the ladder and the scan both have to
+         prove they exclude it. There is deliberately **no 0-25 row**: whether
+         vanilla has one is exactly what the scan exists to find out, and a stub
+         that supplied one would be answering the open question itself. ]]--
+    { 8, 25 },
 }
+
+Stub.spellById = {
+    [2974]  = { 1, "Wing Clip" },
+    [853]   = { 2, "Hammer of Justice" },
+    [19503] = { 3, "Scatter Shot" },
+    [5782]  = { 4, "Fear" },
+    [116]   = { 5, "Frostbolt" },
+    [133]   = { 6, "Fireball" },
+    [635]   = { 7, "Holy Light" },
+    [1130]  = { 8, "Hunter's Mark" },
+    [100]   = { 9, "Charge" },
+}
+
+-- min and max for a spell id, or nil
+function Stub.SpellIdRange(id)
+    local spell = Stub.spellById[id]
+    if not spell then return nil end
+
+    local row = Stub.rangeRows[spell[1]]
+    return row[1], row[2]
+end
 
 function Stub.SetNampower(present)
     if not present then
@@ -797,8 +821,11 @@ function Stub.SetNampower(present)
         return
     end
 
+    --[[ Name-resolved spells get range-row indices well clear of the real rows
+         above, because both live in the same index space on the client and a
+         collision here would make the stub answer one lookup with the other. ]]--
     local ids, names = {}, {}
-    local next = 1
+    local next = 101
 
     GetSpellIdForName = function(name)
         if not Stub.spellRanges[name] then return nil end
@@ -815,18 +842,23 @@ function Stub.SetNampower(present)
     GetSpellRecField = function(id, field)
         local fixed = Stub.spellById[id]
         if fixed then
-            if field == "name" then return fixed[3] end
-            if field == "rangeIndex" then return id end
+            if field == "name" then return fixed[2] end
+            if field == "rangeIndex" then return fixed[1] end
             return nil
         end
 
         if field ~= "rangeIndex" then return nil end
+
+        --[[ An id nobody has heard of resolves to nothing. Answering with the id
+             itself made every number in the game look like a valid spell, which
+             is the one thing a scan over thirty thousand ids must not see. ]]--
+        if not names[id] then return nil end
         return id
     end
 
     GetSpellRangeData = function(index)
-        local fixed = Stub.spellById[index]
-        if fixed then return fixed[1], fixed[2], 0, fixed[3] end
+        local row = Stub.rangeRows[index]
+        if row then return row[1], row[2], 0 end
 
         local name = names[index]
         if not name then return nil end
@@ -842,12 +874,12 @@ function Stub.SetNampower(present)
         --[[ A fixed id first. No spellbook check and no targeting check: both
              were verified absent in game, and the ladder is built on their
              absence. ]]--
-        local fixed = Stub.spellById[spell]
-        if fixed then
+        local fixedMin, fixedMax = Stub.SpellIdRange(spell)
+        if fixedMin then
             if not Stub.player.hasTarget then return -1 end
 
             local d = Stub.player.targetDistance or 0
-            if d < fixed[1] or d > fixed[2] then return 0 end
+            if d < fixedMin or d > fixedMax then return 0 end
             return 1
         end
 

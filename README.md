@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.6.0 — in development.**
+> **Version 0.6.1 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -166,7 +166,10 @@ It shows a band rather than a midpoint on purpose. A midpoint would fit the
 label better and claim a precision that was never measured. An exact source,
 where you have one, replaces the band entirely.
 
-`/eqob rangedebug` prints the rungs your client produced.
+`/eqob rangedebug` prints the rungs your client produced. `/eqob rangescan` goes
+further and lists every band the client *could* measure, naming one spell for
+each — so a gap in the readout is closed by adding that spell's ID to
+`LADDER_IDS` in `modules/range.lua`, with no other change.
 
 **Check Line Of Sight** is off by default and needs nothing installed, but you
 should know how it works before turning it on. Vanilla will not let an addon
@@ -224,6 +227,7 @@ loads, once. RogueBars' own saved variables are never modified.
 /eqob test                     preview every bar without a target
 /eqob selftest                 check the addon against your client
 /eqob rangedebug               every value behind the distance readout
+/eqob rangescan                every distance band this client can measure
 /eqob reset                    this profile   ( reset all for every profile )
 ```
 

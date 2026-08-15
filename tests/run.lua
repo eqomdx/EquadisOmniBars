@@ -1628,6 +1628,42 @@ Stub.Tick(0.1, 6)
 eq(range.bandLow, nil, "an exact source leaves no band behind")
 near(range.yards, 37, 0.01, "and supplies the number itself")
 
+--[[ **The scan that finds rungs nobody knew about.**
+
+     "Is there a 25 yard rung?" is not a question to answer from memory. The
+     client holds it in two tables -- the distinct min/max pairs, and which
+     spells point at which pair -- so the scan reads the first to learn which
+     bands exist at all and walks the second only to put a name to them.
+
+     The stub deliberately has no 0-25 row. Whether vanilla has one is the open
+     question, and a stub that supplied one would be answering it itself. ]]--
+context = "range scan: "
+
+OB = boot("ROGUE", 0, { ranged = "Crossbows", nampower = true })
+local chatBase = table.getn(Stub.chat)
+OB.RunRangeScan()
+
+local scanText = ""
+for i = chatBase + 1, table.getn(Stub.chat) do
+    scanText = scanText .. Stub.chat[i] .. "\n"
+end
+
+check(string.find(scanText, "0%-5", 1) ~= nil, "the scan lists the range rows")
+check(string.find(scanText, "0%-100", 1) ~= nil, "including the longest")
+check(string.find(scanText, "dead zone", 1) ~= nil,
+        "and marks the one with a minimum range as unusable")
+
+--[[ A spell named for each usable band, which is what makes the output
+     actionable: the id goes straight into LADDER_IDS. ]]--
+check(string.find(scanText, "5y: id 2974  Wing Clip", 1) ~= nil,
+        "each usable band names a spell that uses it")
+check(string.find(scanText, "40y: id 635  Holy Light", 1) ~= nil, "all of them")
+
+--[[ Charge's row is never given a spell, because a row with a minimum range is
+     two thresholds rather than one and cannot be a rung. ]]--
+check(string.find(scanText, "25y: id", 1) == nil,
+        "and a dead-zone row is never offered as a rung")
+
 context = "distance backend: "
 
 --[[ The action backend **finds** its slot rather than being told.
