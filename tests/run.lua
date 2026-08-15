@@ -1555,6 +1555,22 @@ for i = 1, table.getn(rungs) do
 end
 check(not sawCharge, "and Charge, which has a dead zone, is filtered out")
 
+--[[ The rungs the scan bought. 25 and 45 were the two worst gaps; 50 and 60
+     extend the top. Five-yard resolution now runs unbroken from 0 to 50. ]]--
+local byMax = {}
+for i = 1, table.getn(rungs) do byMax[rungs[i].max] = true end
+
+check(byMax[25], "a 25 yard rung, which closes the old 20-30 gap")
+check(byMax[45], "and a 45")
+check(byMax[50], "and a 50")
+eq(lastMax, 100, "with 100 the longest, not the client's 50000 row")
+
+--[[ **Capped, and the cap is not cosmetic.** The client holds a 0-50000 row --
+     Eye of Kilrogg uses it -- and without a ceiling that becomes the top rung
+     and the longest band reads "100-50000y", which is worse than admitting
+     there is no upper bound at all. ]]--
+check(not byMax[50000], "the 50000 yard row is not a rung")
+
 --[[ The band, at distances chosen to land in different gaps between rungs. The
      35-40 case is the one the game actually produced: Fireball 0, Holy Light 1,
      on a rogue who knows neither spell. ]]--
@@ -1568,6 +1584,8 @@ eq(bandAt(37), "35-40", "a target past Fireball but inside Holy Light")
 eq(bandAt(3), "0-5", "one inside the shortest rung")
 eq(bandAt(12), "10-15", "and one in the middle")
 eq(bandAt(32), "30-35", "the band the crossbow's own limit falls in")
+eq(bandAt(23), "20-25", "and the gap the scan closed is a band of its own now")
+eq(bandAt(47), "45-50", "as is the far end")
 
 --[[ Past the longest rung there is no upper bound to give, and saying so is a
      different answer from any band. ]]--
@@ -1659,10 +1677,21 @@ check(string.find(scanText, "5y: id 2974  Wing Clip", 1) ~= nil,
         "each usable band names a spell that uses it")
 check(string.find(scanText, "40y: id 635  Holy Light", 1) ~= nil, "all of them")
 
---[[ Charge's row is never given a spell, because a row with a minimum range is
-     two thresholds rather than one and cannot be a rung. ]]--
-check(string.find(scanText, "25y: id", 1) == nil,
-        "and a dead-zone row is never offered as a rung")
+--[[ The question that prompted the scan, answered: there **is** a zero-minimum
+     25 yard row, so the worst gap in the ladder closes. Note that the client
+     also has a 10-25 row -- the two are different rows and only one is a
+     threshold. ]]--
+check(string.find(scanText, "25y: id 1906", 1) ~= nil,
+        "a 25 yard rung exists and is named")
+
+--[[ Rows with a minimum are listed so they can be seen, and never offered as
+     rungs. A spell answering "out of range" from both directions is two
+     thresholds rather than one, and the search assumes one. ]]--
+check(string.find(scanText, "10%-40", 1) ~= nil,
+        "a row with a minimum range is still listed")
+
+local _, deadZones = string.gsub(scanText, "dead zone", "")
+eq(deadZones, 5, "all five of them marked unusable")
 
 context = "distance backend: "
 

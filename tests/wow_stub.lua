@@ -780,27 +780,54 @@ Stub.spellRanges = {}
      indirection is the whole basis of `/eqob rangescan` -- reading the rows
      answers "which bands could this client measure" without walking a single
      spell -- so a stub that collapsed the two into one could not test it. ]]--
-Stub.rangeRows = {
-    { 0, 5 }, { 0, 10 }, { 0, 15 }, { 0, 20 },
-    { 0, 30 }, { 0, 35 }, { 0, 40 }, { 0, 100 },
+--[[ **The real table**, as `/eqob rangescan` read it out of the client. Keyed by
+     index and full of gaps, exactly as found -- index 1 is absent, and the rows
+     jump from 15 to 34 and from 38 to 54. An array would have hidden that, and
+     the gaps are the reason the scan walks a fixed span rather than counting.
 
-    --[[ The dead zone Charge uses, kept so the ladder and the scan both have to
-         prove they exclude it. There is deliberately **no 0-25 row**: whether
-         vanilla has one is exactly what the scan exists to find out, and a stub
-         that supplied one would be answering the open question itself. ]]--
-    { 8, 25 },
+     Two things here are worth more than the rest of the table. There **is** a
+     zero-minimum 25 row, which was the open question and which closes the worst
+     gap in the ladder. And there is a 0-50000 row, which is why a ladder without
+     an upper cap ends up with a top band reading "100-50000y". ]]--
+Stub.rangeRows = {
+    [2]  = { 0, 5 },     [3]  = { 0, 20 },    [4]  = { 0, 30 },
+    [5]  = { 0, 40 },    [6]  = { 0, 100 },   [7]  = { 0, 10 },
+    [8]  = { 10, 20 },   [9]  = { 10, 30 },   [10] = { 10, 40 },
+    [11] = { 0, 15 },    [12] = { 0, 5 },     [13] = { 0, 50000 },
+    [14] = { 0, 60 },    [15] = { 0, 36 },    [34] = { 0, 25 },
+    [35] = { 0, 35 },    [36] = { 0, 45 },    [37] = { 0, 50 },
+    [38] = { 10, 25 },   [54] = { 5, 30 },
 }
 
+--[[ Spell ids, and every range here is the client's own. The first eight were
+     guessed and confirmed; the rest the scan found by name.
+
+     Several are not player spells. That is the point rather than a compromise:
+     nothing is ever cast, the range check is arithmetic on a DBC row, and a
+     spell nobody can cast measures a distance exactly as well as one anybody
+     can. ]]--
 Stub.spellById = {
-    [2974]  = { 1, "Wing Clip" },
-    [853]   = { 2, "Hammer of Justice" },
-    [19503] = { 3, "Scatter Shot" },
-    [5782]  = { 4, "Fear" },
-    [116]   = { 5, "Frostbolt" },
-    [133]   = { 6, "Fireball" },
-    [635]   = { 7, "Holy Light" },
-    [1130]  = { 8, "Hunter's Mark" },
-    [100]   = { 9, "Charge" },
+    [2974]  = { 2,  "Wing Clip" },
+    [853]   = { 7,  "Hammer of Justice" },
+    [19503] = { 11, "Scatter Shot" },
+    [5782]  = { 3,  "Fear" },
+    [1906]  = { 34, "Debilitating Charge" },
+    [116]   = { 4,  "Frostbolt" },
+    [133]   = { 35, "Fireball" },
+    [635]   = { 5,  "Holy Light" },
+    [785]   = { 36, "True Fulfillment" },
+    [15746] = { 37, "Disturb Rookery Egg" },
+    [530]   = { 14, "Charm (Possess)" },
+    [1130]  = { 6,  "Hunter's Mark" },
+
+    -- absurdly long, and the reason the ladder caps itself
+    [126]   = { 13, "Eye of Kilrogg" },
+
+    --[[ A dead zone, kept so the ladder and the scan both have to prove they
+         exclude it. Charge reported 8-25 when read directly, and no 8-25 row
+         appeared in the scan -- so rows exist above the span it walked, which is
+         why that span was widened. Modelled on the 10-25 row it did find. ]]--
+    [100]   = { 38, "Charge" },
 }
 
 -- min and max for a spell id, or nil

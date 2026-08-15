@@ -612,14 +612,6 @@ end
      it breaks the ordering the method depends on. Charge is included anyway,
      precisely so the dead zone shows up in the output rather than being assumed
      away. ]]--
-local LADDER = {
-    { 2974, "Wing Clip" },          { 853, "Hammer of Justice" },
-    { 19503, "Scatter Shot" },      { 5782, "Fear" },
-    { 116, "Frostbolt" },           { 133, "Fireball" },
-    { 635, "Holy Light" },          { 1130, "Hunter's Mark" },
-    { 100, "Charge (has a dead zone)" },
-}
-
 local function rangeLadderProbe()
     OB.Raw("  " .. GREY .. "-- range ladder, asked by spell id --" .. WHITE)
 
@@ -628,8 +620,10 @@ local function rangeLadderProbe()
         return
     end
 
-    for i = 1, table.getn(LADDER) do
-        local id, expected = LADDER[i][1], LADDER[i][2]
+    local candidates = OB.ladderCandidates or {}
+
+    for i = 1, table.getn(candidates) do
+        local id = candidates[i]
 
         --[[ What the client says this id actually is. The hardcoded label is
              only a note to the reader; this is the value that decides whether
@@ -655,7 +649,7 @@ local function rangeLadderProbe()
         local ok, result = pcall(IsSpellInRange, id, "target")
         local answer = ok and tostring(result) or ("ERROR " .. tostring(result))
 
-        OB.Raw("    " .. id .. " " .. expected .. ": client=" .. realName
+        OB.Raw("    id " .. id .. ": " .. realName
                 .. " dbc=" .. dbc .. " inRange=" .. answer)
     end
 end
@@ -813,7 +807,7 @@ OB.commands.rangedebug = {
      part of the login probe: thirty thousand ids is a visible pause, worth
      paying once to answer a question permanently. ]]--
 local SPELL_ID_MAX = 30000
-local RANGE_INDEX_MAX = 64
+local RANGE_INDEX_MAX = 256
 
 function OB.RunRangeScan()
     if type(GetSpellRangeData) ~= "function"

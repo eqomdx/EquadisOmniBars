@@ -361,8 +361,27 @@ end
      Which is the point: 25, 45 and 50 yard rungs would fill the two gaps this
      list leaves, and finding spells at those ranges is a matter of adding ids
      here rather than of changing any code. ]]--
+--[[ Rungs beyond this are not a distance, they are a formality. The client holds
+     a 0-50000 row -- Eye of Kilrogg uses it -- and without a cap that becomes the
+     top rung and the longest band reads "100-50000y", which is worse than
+     admitting there is no ceiling. ]]--
+local LADDER_MAX = 120
+
+--[[ The first eight came from guesswork and happened to be right. The rest came
+     from `/eqob rangescan`, which reads the client's range table directly and
+     names a spell for every band in it -- and found seven bands the guessing had
+     missed, including the 25 and the 45 that were the two worst gaps.
+
+     Several are not player spells at all. "Disturb Rookery Egg" and "True
+     Fulfillment" are internal, and that is fine: nothing is ever cast. The range
+     check is arithmetic on a DBC row, and a spell nobody can cast measures a
+     distance exactly as well as a spell anybody can.
+
+     Ordered so that a **known-good id wins a band it shares with an unverified
+     one** -- the build keeps the first id offered for each distinct range, and
+     the eight at the top are the ones proven to answer in game. ]]--
 local LADDER_IDS = {
-    -- verified in game, with the ranges the client reported
+    -- verified answering in game
     2974,   -- Wing Clip, 5
     853,    -- Hammer of Justice, 10
     19503,  -- Scatter Shot, 15
@@ -372,23 +391,16 @@ local LADDER_IDS = {
     635,    -- Holy Light, 40
     1130,   -- Hunter's Mark, 100
 
-    --[[ Unverified, and here to be tried. Any that resolve to a range the list
-         above does not already cover make the ladder finer; any that do not
-         resolve, or that duplicate a range already present, are dropped without
-         comment. Adding a wrong id here cannot break anything. ]]--
-    921,    -- Pick Pocket
-    1725,   -- Distract
-    20271,  -- Judgement
-    5019,   -- Shoot (wand)
-    2764,   -- Throw
-    3044,   -- Arcane Shot
-    136,    -- Mend Pet
-    982,    -- Revive Pet
-    1064,   -- Chain Heal
-    2050,   -- Lesser Heal
-    6197,   -- Eagle Eye
-    6196,   -- Far Sight
+    -- found by the scan; ranges confirmed from the client's own table
+    1906,   -- Debilitating Charge, 25  -- closes the 20-30 gap
+    785,    -- True Fulfillment, 45
+    15746,  -- Disturb Rookery Egg, 50
+    530,    -- Charm (Possess), 60
 }
+
+-- exposed so /eqob rangedebug probes the real list rather than a copy of it that
+-- can drift out of step with this one
+OB.ladderCandidates = LADDER_IDS
 
 --[[ Build the ladder from the client's own spell data.
 
@@ -419,6 +431,7 @@ function OB.BuildRangeLadder()
             local okRange, minRange, maxRange = pcall(GetSpellRangeData, index)
 
             if okRange and type(maxRange) == "number" and maxRange > 0
+                    and maxRange <= LADDER_MAX
                     and (minRange or 0) == 0 and not seen[maxRange] then
                 seen[maxRange] = true
                 table.insert(rungs, { id = id, max = maxRange })

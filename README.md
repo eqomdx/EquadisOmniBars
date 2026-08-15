@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.6.1 — in development.**
+> **Version 0.6.2 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -154,13 +154,19 @@ one that reaches 40: no, then yes, puts your target between the two. Enough
 spells and the answer narrows to a band, which is what the label shows:
 `35-40y`, or `100+y` past the longest one.
 
-You do not need to know the spells. Nampower answers about any spell in the game
-when asked by ID, and it ignores who the spell could really be cast on — a rogue
-gets a clean answer out of Fireball and Holy Light alike. OmniBars reads each
-candidate's real range from **your** client at login, so a server that has
-retuned something calibrates to the retuned value, and spells with a dead zone
-are dropped (a threshold that answers "no" from both directions is not a
-threshold).
+You do not need to know the spells, and neither did OmniBars — the rung list came
+out of the client's own range table. Several of them are not player spells at
+all: *Debilitating Charge*, *True Fulfillment*, *Disturb Rookery Egg*. That is
+fine, because nothing is ever cast. The range check is arithmetic on a table row,
+so a spell nobody can cast measures a distance exactly as well as one anybody
+can.
+
+The rungs land at **5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60 and 100 yards** —
+five-yard resolution unbroken from touching distance to fifty, which covers every
+weapon in the game. Each candidate's real range is read from **your** client at
+login, so a server that has retuned something calibrates to the retuned value.
+Spells with a dead zone are dropped: a threshold that answers "no" from both
+directions is not a threshold.
 
 It shows a band rather than a midpoint on purpose. A midpoint would fit the
 label better and claim a precision that was never measured. An exact source,
