@@ -663,16 +663,19 @@ end
 -- UnitXP_SP3's command dispatcher.
 function Stub.SetUnitXP(present)
     if not present then
-        --[[ The stock experience API already owns this global, and it does not
-             complain about being handed a command name -- it just reads it as a
-             unit token and finds no such unit.
+        --[[ The stock experience API already owns this global. Handed a command
+             name it reads it as a unit token, finds no such unit, and **raises a
+             Lua error** -- verified in game, and this is its exact wording:
 
-             It used to `error` here, which was a flattering guess: it made a
-             `pcall`-shaped probe look like it could tell the two apart when it
-             could not. Returning quietly, the way the real function does, is
-             what forces the addon to discriminate on the *answer* instead. ]]--
+               UnitXP('inSight','player','player'):
+                   ERROR Unknown unit name: inSight
+               UnitXP('player'): 112473 (number)
+
+             Both halves matter. The error is why a bare `pcall` probe cannot be
+             fooled into a false positive here; the number is why a probe that
+             concludes "stock" from a *successful* call is the one that can. ]]--
         UnitXP = function(unit)
-            if unit ~= "player" then return nil end
+            if unit ~= "player" then error("Unknown unit name: " .. tostring(unit)) end
             return Stub.player.xp or 0
         end
         return
@@ -722,15 +725,17 @@ function Stub.SetUnitPosition(present)
         return
     end
 
-    --[[ Hostile targets answer nil here, which is a **conservative assumption
-         rather than a verified fact**. It is modelled that way because it is the
-         harder case: if SuperWoW turns out to answer for mobs too, an addon
-         written against this still works, whereas one written against the
-         optimistic model would fail on the only target a HUD ever points at.
+    --[[ Hostile targets answer nil here. This was a conservative assumption for
+         several versions and is now a **verified fact**, from `/eqob rangedebug`
+         against a hostile NPC on a SuperWoW client:
 
-         The reported symptom -- "range check only works on friendly targets" --
-         is consistent with it, which is the other reason to assume it until
-         someone checks in game. ]]--
+           UnitPosition player: -4623.379, 501.620, 36.766
+           UnitPosition target: nil (nil, nil, nil)
+           UnitPosition GUID:   nil (nil, nil, nil)
+
+         Note the third line. Passing the unit's GUID rather than its token does
+         **not** get round it, which was the obvious workaround and is now ruled
+         out rather than untried. ]]--
     UnitPosition = function(unit)
         if unit == "player" or unit == "0xPLAYER" then return 0, 0, 0 end
         if not Stub.player.hasTarget then return nil end

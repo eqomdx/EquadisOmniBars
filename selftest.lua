@@ -658,6 +658,13 @@ function OB.RunRangeDebug()
          selected. "available but declines" and "never considered" look identical
          from the outside and have completely different fixes. ]]--
     OB.Raw("  " .. GREY .. "-- backends, against this target --" .. WHITE)
+
+    --[[ Reading every backend walks paths the live readout would have skipped,
+         and `bands` arms a warning when it meets an attackable unit. Left alone,
+         the diagnostic prints a complaint it caused itself -- which is exactly
+         the sort of thing a diagnostic must never do. ]]--
+    local blindBefore, warnedBefore = m.blindToHostiles, m.warnedHostile
+
     for i = 1, table.getn(OB.rangeOrder) do
         local backend = OB.rangeBackends[OB.rangeOrder[i]]
 
@@ -675,6 +682,8 @@ function OB.RunRangeDebug()
         if backend == m.backend then line = line .. GREY .. "  <- selected" .. WHITE end
         OB.Raw(line)
     end
+
+    m.blindToHostiles, m.warnedHostile = blindBefore, warnedBefore
 
     local state, yards = m:Read()
     OB.Raw("  " .. GREY .. "-- result --" .. WHITE)

@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.5.5 — in development.**
+> **Version 0.5.6 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -241,10 +241,19 @@ Vanilla 1.12 client APIs only, Lua 5.0, no libraries, no dependencies, no
 localisation requirements.
 
 SuperWoW and UnitXP_SP3 are optional. SuperWoW's `UnitPosition` supplies exact
-friendly-unit coordinates; it does not expose hostile-unit coordinates, even
-when given a GUID. OmniBars also supports `GetUnitDistance(unitToken)` from a
-Nampower build that exposes its existing object-manager positions. UnitXP_SP3
-remains a compatible exact hostile-distance source. The yards label is always
+friendly-unit coordinates; it does **not** expose hostile-unit coordinates, and
+passing the unit's GUID instead of its token does not get round it — both
+confirmed in game, not assumed. OmniBars also supports
+`GetUnitDistance(unitToken)` from a Nampower build that exposes its existing
+object-manager positions. UnitXP_SP3 remains a compatible exact hostile-distance
+source.
+
+So an **exact yard count on a hostile target needs one of those two native
+extensions**. Nampower alone gets the color right on every target type — it
+answers the range question for mobs perfectly well — but it has no number to
+give, and there is no Lua-only substitute. The yards label is simply blank
+there, and OmniBars says so once rather than leaving you watching an empty
+label. The yards label is always
 one exact current distance such as `23y`. The equipped attack's complete usable
 range is shown separately as `[8-30y]`; both labels can be hidden or swapped
 between the left and right sides. Stock Nampower 4.6.2 still provides the hostile

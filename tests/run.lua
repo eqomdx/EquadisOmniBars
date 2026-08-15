@@ -1425,6 +1425,28 @@ OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true,
 eq(OB.modules.distance.backend.id, "spell",
         "a friendly-only measurer is not chosen for a hostile target")
 
+--[[ And a *preferred* backend that cannot answer this unit is not asked.
+
+     The backend is chosen once, at login, but whether it can measure a given
+     unit is a property of the unit rather than of the client. On a SuperWoW-only
+     install `precise` is picked from a standing start and then cannot touch a
+     single mob -- so asking it first was a wasted trip through a client mod ten
+     times a second, and it left the readout naming a backend that never once
+     answered.
+
+     Confirmed in game before it was fixed: `selected=precise available=false
+     answered=spell`. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, unitPosition = true,
+                         friendlyTarget = true, hasTarget = true })
+range = OB.modules.distance
+eq(range.backend.id, "precise", "a friendly target picks the measuring backend")
+
+Stub.player.friendlyTarget = false
+Stub.player.targetDistance = 20
+local hostileState = range:Read()
+eq(hostileState, "inrange", "and a hostile one still gets a state")
+eq(range.answered.id, "spell", "from the backend that can actually answer it")
+
 -- UnitXP is the older distance source and still works where it exists
 OB = boot("HUNTER", 0, { ranged = "Bows", unitXP = true })
 eq(OB.modules.distance.backend.id, "precise", "UnitXP measures too")

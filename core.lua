@@ -17,7 +17,7 @@ local _G = getfenv(0)
 EquadisOmniBars = {}
 local OB = EquadisOmniBars
 
-OB.version = "0.5.5"
+OB.version = "0.5.6"
 OB.addonName = "Equadis' OmniBars"
 
 --[[ The addon folder name is load-bearing: every media path below hardcodes it,

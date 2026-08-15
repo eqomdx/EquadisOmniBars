@@ -751,7 +751,18 @@ function M:Read()
         return nil, nil
     end
 
-    local state, yards = self.backend.Read(self)
+    --[[ Asked only when it can answer *this* target. The preferred backend is
+         chosen once, at login, and whether it can measure a given unit is not a
+         property of the client -- it is a property of the unit. A client with
+         SuperWoW and nothing else picks `precise` from a standing start and then
+         cannot touch a single hostile mob, so calling it first was a wasted trip
+         through a client mod ten times a second, and it left the readout
+         reporting a backend that never once answered. ]]--
+    local state, yards
+    if self.backend.Available(self) then
+        state, yards = self.backend.Read(self)
+    end
+
     if state then
         self.answered = self.backend
     else
@@ -783,6 +794,20 @@ function M:Read()
          here means an exact source is used wherever it exists, whatever decided
          the colour. ]]--
     if not yards then yards = OB.UnitDistance("target") end
+
+    --[[ A hostile target with a state but no number is its own complaint, and a
+         different one from having no state at all.
+
+         The client this was diagnosed on proves the case exists and is not rare:
+         Nampower answers the range question for mobs perfectly well, so the
+         colour is right, while every source of an exact yard count is either
+         absent or friendly-only. Saying "range does not work on hostiles" there
+         would be wrong; saying nothing leaves someone watching a label that is
+         blank on the only targets they care about. ]]--
+    if not yards and self:Config().showText
+            and UnitCanAttack("player", "target") then
+        self:WarnNoHostileYardage()
+    end
 
     --[[ Line of sight overrides everything: a target you cannot see is one you
          cannot shoot, whatever the distance says. Applied after the backends
@@ -845,9 +870,24 @@ function M:WarnBlindToHostiles()
     if self.warnedHostile then return end
     self.warnedHostile = true
 
-    OB.Print("this client can only measure range to friendly targets. Nampower"
-            .. " covers hostile ones, as does putting your ranged attack on an"
+    OB.Print("nothing on this client can range check a hostile target."
+            .. " Nampower covers it, as does putting your ranged attack on an"
             .. " action bar.")
+end
+
+--[[ Said once, and only about the yard count.
+
+     Deliberately not phrased as a fault: the bar is doing the thing it exists
+     for. `native/` holds the Nampower patch that supplies the missing call, so
+     the message names the fix rather than the failure. ]]--
+function M:WarnNoHostileYardage()
+    if self.warnedYardage then return end
+    self.warnedYardage = true
+
+    OB.Print("the distance colour works on hostile targets, but no exact yard"
+            .. " count is available for them here -- that needs Nampower's"
+            .. " |cff69ccf0GetUnitDistance|r or UnitXP_SP3. SuperWoW measures"
+            .. " friendly units only.")
 end
 
 function M:OnBind(slot)
