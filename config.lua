@@ -59,7 +59,7 @@ end
      automatically for a rogue would move a hunter's bars. Restack Occupied Bars
      does it on demand -- see constraint 15. ]]--
 OB.defaults = {
-    schema = 9,
+    schema = 10,
 
     -- visibility
     show = true,
@@ -405,6 +405,38 @@ OB.profileMigrations = {
         local c = distance.noTargetColor
         if c and c[1] == 0 and c[2] == 0 and c[3] == 0 and c[4] == 0 then
             distance.noTargetColor = { 0.12, 0.12, 0.12, 1 }
+        end
+    end },
+
+    --[[ Text sides became text **positions**.
+
+         Every label used to be nailed to an edge, and Swap Text Sides was the
+         one way to get between the two. A position slider is the same choice
+         with the whole width in between, so the boolean converts to its two
+         endpoints and nothing anybody had set moves.
+
+         The distance readout's fallback sliders go at the same time. They only
+         ever applied to a ranged slot holding a relic, which is not a thing
+         anyone can usefully tune. ]]--
+    { 10, function(p)
+        if not p.modules then return end
+
+        local swings = { "mainhand", "offhand", "ranged" }
+        for i = 1, table.getn(swings) do
+            local m = p.modules[swings[i]]
+            if m then
+                if m.swap then
+                    m.timerPos, m.speedPos = 100, 0
+                else
+                    m.timerPos, m.speedPos = 0, 100
+                end
+                m.swap = nil
+            end
+        end
+
+        if p.modules.distance then
+            p.modules.distance.maxRange = nil
+            p.modules.distance.deadZone = nil
         end
     end },
 }

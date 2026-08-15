@@ -34,6 +34,28 @@ OB.tickers = {}
      the cycle advances by *whole* periods rather than restarting. Restarting
      would put the sweep off-beat, so the spark would be in the wrong place the
      moment you dumped energy, which is precisely when it matters. ]]--
+
+--[[ How close to the predicted boundary a gain has to arrive to be believed as
+     the regeneration tick.
+
+     **Energy does not only arrive on the tick**, and treating every gain as one
+     was the bug. A rogue with Vigor gets 2 energy back on each poison
+     application; Relentless Strikes pays 25 on a finisher; Thistle Tea hands
+     over 100. Every one of those re-anchored the cycle, so the sweep restarted
+     mid-beat and the spark stopped predicting the thing it exists to predict --
+     and worst while actually fighting, which is the only time anyone looks.
+
+     The server's energy loop is a fixed two seconds and nothing a player does
+     shifts it. So a gain is only read as the tick when the cycle says a tick is
+     due; anything arriving early is somebody's talent and is allowed to raise
+     the energy without touching the phase.
+
+     It still self-corrects. If the phase is wrong -- a first observation that
+     happened to be a refund -- the real tick keeps arriving every two seconds
+     and the first one to land past the (wrong) boundary re-anchors, so the error
+     lasts at most one cycle. ]]--
+local PULSE_TOLERANCE = 0.25
+
 OB.tickers.pulse = {
     Reset = function(t, now)
         t.start = now
@@ -41,7 +63,8 @@ OB.tickers.pulse = {
     end,
 
     Observe = function(t, now, current, previous)
-        if current > previous then
+        if current > previous
+                and (now - t.start) >= (t.period - PULSE_TOLERANCE) then
             t.start = now
             t.period = 2
             return true
@@ -142,6 +165,7 @@ local M = OB.RegisterModule({
 
     defaults = {
         textMode = "value",
+        textPos = 50,
         tickerColor = { 1, 1, 1, 1 },
         fsrShade = true,
         fsrColor = { 0.3, 0.5, 1.0, 0.25 },
@@ -172,6 +196,7 @@ local M = OB.RegisterModule({
                 { "none", "value", "percent", "max", "valuepct", "maxpct" },
                 { "None", "Current Only", "Percentage", "Current / Max",
                   "Current (Percent)", "Current / Max (Percent)" }) },
+        { "Text Position", "textPos", "slider", 0, 100, 1 },
         { "Shade Five Second Rule", "fsrShade", "boolean", nil, nil, nil, nil, "@power_mana" },
         { "Five Second Rule Color", "fsrColor", "color", true, nil, nil, nil, "@power_mana" },
         { "Mark Rage Decay", "rageDecay", "boolean", nil, nil, nil, nil, "@power_rage" },
@@ -369,7 +394,8 @@ function M:OnDraw()
 
     local slot = OB.profile.slots[self.slotId]
     OB.SetBarFill(self.frame, fraction, slot.flip)
-    self.frame.center:SetText(OB.FormatValue(value, max, cfg.textMode))
+    OB.SetBarText(self.frame, self.frame.center,
+            OB.FormatValue(value, max, cfg.textMode), cfg.textPos)
 
     --[[ Where rage will have leaked to by the time the look-ahead is up, as a
          line on the bar. Drawn only while it is actually leaking and only once a

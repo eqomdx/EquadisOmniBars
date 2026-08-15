@@ -183,8 +183,11 @@ local function swingOptions()
         { "Bar Color", "color", "color", true },
         { "Show Timer", "showTimer", "boolean" },
         { "Show Weapon Speed", "showSpeed", "boolean" },
-        { "Swap Text Sides", "swap", "boolean" },
-        { "Decimal Places", "decimals", "slider", 0, 2, 1 },
+        { "Timer Position", "timerPos", "slider", 0, 100, 1 },
+        { "Weapon Speed Position", "speedPos", "slider", 0, 100, 1 },
+        --[[ A list rather than a slider. Three values is not a range worth
+             dragging through, and the saved numbers are unchanged either way. ]]--
+        { "Decimal Points", "decimals", OB.Enum({ 0, 1, 2 }, { "0", "1", "2" }) },
         { "Deplete Instead Of Fill", "deplete", "boolean" },
     }
 end
@@ -293,13 +296,12 @@ function impl:OnUpdate(now)
 
     OB.SetBarFill(bar, shown / speed, slot.flip)
 
-    if cfg.swap then
-        bar.left:SetText(speedText)
-        bar.right:SetText(timerText)
-    else
-        bar.left:SetText(timerText)
-        bar.right:SetText(speedText)
-    end
+    --[[ One slot each, always the same slot, and the position setting decides
+         where that slot sits. Swapping the two used to mean swapping which
+         string went into which fixed anchor; now neither is fixed, and dragging
+         one past the other is a thing the player can do rather than a mode. ]]--
+    OB.SetBarText(bar, bar.left, timerText, cfg.timerPos)
+    OB.SetBarText(bar, bar.right, speedText, cfg.speedPos)
 end
 
 -- the sweep is continuous, so OnUpdate does the drawing and OnDraw only has to
@@ -353,7 +355,13 @@ local function defineSwing(id, name, hand, bar, color)
             color = color,
             showTimer = true,
             showSpeed = true,
-            swap = false,
+
+            --[[ Timer hard left, speed hard right: where the two used to be
+                 nailed, so an upgrade changes nothing anybody can see. Swap Text
+                 Sides was the old way to get between them and is now one point
+                 on a slider that has the whole width in between. ]]--
+            timerPos = 0,
+            speedPos = 100,
             decimals = 1,
             deplete = false,
         },

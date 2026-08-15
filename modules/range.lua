@@ -667,12 +667,9 @@ local M = OB.RegisterModule({
     defaults = {
         backend = "auto",
 
-        --[[ Used only when nothing can supply the weapon's real range: a class
-             with a relic in the ranged slot, or a client without Nampower. ]]--
-        maxRange = 30,
-        deadZone = 0,
-
         showText = true,
+        distancePos = 50,
+        rangePos = 100,
 
         --[[ Off, because it is the label that had to be removed once already: a
              number that never changes, on a bar whose whole job is to change,
@@ -728,11 +725,11 @@ local M = OB.RegisterModule({
         { "No Line Of Sight Color", "noLosColor", "color", true },
         { "No Target Color", "noTargetColor", "color", true },
         { "Show Active Distance", "showText", "boolean" },
-        { "Show Spell Range", "showRange", "boolean" },
+        { "Show In-Range Distances", "showRange", "boolean" },
+        { "Distance Position", "distancePos", "slider", 0, 100, 1 },
+        { "In-Range Distances Position", "rangePos", "slider", 0, 100, 1 },
         { "Check Line Of Sight", "losCheck", "boolean" },
         { "No Line Of Sight Timer", "losWindow", "slider", 0.1, 2, 0.1 },
-        { "Fallback Maximum Range", "maxRange", "slider", 5, 100, 1 },
-        { "Fallback Dead Zone", "deadZone", "slider", 0, 20, 1 },
     },
 
     --[[ Nothing from a client mod is listed. Every one is expected to be missing
@@ -766,11 +763,17 @@ end
      Everything downstream keys off this: the backend probe needs `spellId`, and
      three of the four readings need `minRange`. Re-run whenever the inventory
      changes, which is the only thing that can alter the answer. ]]--
-function M:ScanWeapon()
-    local cfg = self:Config()
+--[[ What to assume before anything better is known. These were two settings --
+     Fallback Maximum Range and Fallback Dead Zone -- and they were settings
+     asking the wrong person. Nampower supersedes both with the client's own
+     numbers, and the `spellRange` table above covers every weapon without it, so
+     the sliders only ever applied to a ranged slot holding a relic. Nobody can
+     usefully tune "how far can I shoot with the idol I am not shooting". ]]--
+local ASSUMED_MAX, ASSUMED_MIN = 30, 0
 
+function M:ScanWeapon()
     self.weapon, self.spell, self.spellId = nil, nil, nil
-    self.minRange, self.maxRange = cfg.deadZone, cfg.maxRange
+    self.minRange, self.maxRange = ASSUMED_MIN, ASSUMED_MAX
 
     local link = GetInventoryItemLink("player", RANGED_SLOT)
     if not link then return end
@@ -971,6 +974,11 @@ function M:Read()
         if not yards then return nil, nil end
 
         self.measured, self.bandLow, self.bandHigh = yards, nil, nil
+
+        --[[ The blocked colour, at the far end of the sweep. Every other state
+             falls out of a distance; this one does not, so the preview has to
+             stage it or it is the one swatch nobody can see while choosing. ]]--
+        if OB.test.rangeLos then return "nolos", yards end
 
         if (self.minRange or 0) > 0 and yards < self.minRange then
             return "tooclose", yards
@@ -1246,10 +1254,11 @@ end
      which it did while the exact sources covered friendlies and the ladder
      covered everything else.
 
-     Two edges. The first step reads "5y" rather than "0y", because nothing is
-     ever at zero and "0y" reads as a failure. The last reads "50y+": past fifty
-     the exact figure stops being useful and the rungs get coarse, so a single
-     honest ceiling beats a number that pretends otherwise. ]]--
+     Both ends are open and say so. The closest step reads "<5y" rather than
+     "0y" or "5y": inside five yards the step has no floor worth naming, and "0y"
+     reads as a failure rather than a distance. The far end reads "50y+", because
+     past fifty the rungs get coarse and one honest ceiling beats a number
+     pretending otherwise. ]]--
 local STEP = 5
 local STEP_CEILING = 50
 
@@ -1260,7 +1269,7 @@ function M:DistanceText()
     if not low then return "" end
 
     if low >= STEP_CEILING then return STEP_CEILING .. "y+" end
-    if low < STEP then low = STEP end
+    if low < STEP then return "<" .. STEP .. "y" end
 
     return low .. "y"
 end
@@ -1348,9 +1357,11 @@ function M:OnDraw()
          the right. They are separated because they are different kinds of fact,
          and putting the unchanging one next to the changing one is what made the
          interval read as a measurement. ]]--
-    bar.left:SetText("")
-    bar.center:SetText(cfg.showText and self:DistanceText() or "")
-    bar.right:SetText(cfg.showRange and self:SpellRangeText() or "")
+    OB.SetBarText(bar, bar.left, "", 0)
+    OB.SetBarText(bar, bar.center, cfg.showText and self:DistanceText() or "",
+            cfg.distancePos)
+    OB.SetBarText(bar, bar.right, cfg.showRange and self:SpellRangeText() or "",
+            cfg.rangePos)
 
     -- the dead zone edge used to be ticked, marking where a draining fill would
     -- cross it. With nothing draining there is no crossing to mark.
@@ -1361,8 +1372,6 @@ end
      it means anything. Probe re-runs the scan and then re-picks the backend. ]]--
 M.onChange = {
     backend = function() M:Probe() end,
-    maxRange = function() M:Probe() end,
-    deadZone = function() M:Probe() end,
 }
 
 -- ---------------------------------------------------------------------------
@@ -1378,16 +1387,24 @@ M.onChange = {
 
 local HOLD = 2
 
+--[[ Far enough out that the sweep passes the readout's last step rather than the
+     equipped weapon's maximum. The label tops out at "50y+", so a preview that
+     stopped at a crossbow's 30 never showed the player half the numbers they
+     were about to see in the field. ]]--
+local TEST_CEILING = 55
+
 function M:TestStart(now)
     OB.test.range = 0
     OB.test.rangeOut = true
     OB.test.rangeHeld = nil
+    OB.test.rangeLos = nil
     OB.test.rangeAt = now
 end
 
 function M:TestStop()
     self.state, self.yards = nil, nil
     OB.test.rangeHeld = nil
+    OB.test.rangeLos = nil
     self.nextPoll = 0
 end
 
@@ -1407,15 +1424,32 @@ function M:TestStep(now)
     if (now - (OB.test.rangeAt or 0)) < 0.1 then return end
     OB.test.rangeAt = now
 
-    local ceiling = (self.maxRange or 30) + 5
+    --[[ The sweep runs the length of the readout rather than the length of the
+         weapon: out past the last step the label can show, back in again, and
+         round. Anything shorter leaves a colour the player is trying to choose
+         off the end of the preview. ]]--
+    local ceiling = TEST_CEILING
     local step = ceiling / 60
 
     if OB.test.rangeOut then
         OB.test.range = OB.test.range + step
+
         if OB.test.range >= ceiling then
             OB.test.range = ceiling
+
+            --[[ Past the far end, the no-line-of-sight colour, held for a beat.
+                 It is the one state the sweep could never otherwise reach --
+                 nothing about a distance produces it -- so without this the
+                 player is picking a colour they cannot see. ]]--
+            OB.test.rangeLos = now
             OB.test.rangeOut = false
         end
+        return
+    end
+
+    if OB.test.rangeLos then
+        if (now - OB.test.rangeLos) < HOLD then return end
+        OB.test.rangeLos = nil
         return
     end
 

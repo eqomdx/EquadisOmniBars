@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.6.3 — in development.**
+> **Version 0.7.0 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -102,7 +102,7 @@ seconds from now, at a rate measured from your own server rather than assumed.
 configurable opacity.
 
 **Swing Timers** — main hand, off hand and ranged, with remaining time and weapon
-speed. Fill or deplete, flip, swap the text sides, 0–2 decimals. Because vanilla's
+speed. Fill or deplete, flip, 0–2 decimal points. Because vanilla's
 combat log does not say which hand swung, a landed swing is attributed to
 whichever hand has been ready *longest* — which is what lets the pair recover on
 its own after a stun or a run out of range.
@@ -153,11 +153,11 @@ threshold* is one bit of a distance. Ask about a spell that reaches 35 yards and
 one that reaches 40: no, then yes, puts your target between the two. Enough
 spells and the answer narrows to a five-yard step.
 
-The label shows that step: `5y`, `10y`, `15y`, up to `50y+`. **The same steps
-whatever you are pointing at** — friendly, neutral or hostile — because an exact
-distance, where one is available, is floored onto the same steps rather than
-shown to the yard. A readout that said `23y` on a friendly NPC and `20y` on a mob
-would be two readouts wearing one label.
+The label shows that step: `<5y`, `5y`, `10y`, `15y`, up to `50y+`. **The same
+steps whatever you are pointing at** — friendly, neutral or hostile — because an
+exact distance, where one is available, is floored onto the same steps rather
+than shown to the yard. A readout that said `23y` on a friendly NPC and `20y` on
+a mob would be two readouts wearing one label. Both ends are open and say so.
 
 You do not need to know the spells, and neither did OmniBars — the rung list came
 out of the client's own range table. Several of them are not player spells at
@@ -176,7 +176,7 @@ directions is not a threshold.
 Three settings govern the labels and the line-of-sight hold:
 
 - **Show Active Distance** — the live stepped figure in the middle of the bar.
-- **Show Spell Range** — your equipped attack's whole usable range, `[8-30y]`, on
+- **Show In-Range Distances** — your equipped attack's whole usable range, `[8-30y]`, on
   the right. Off by default: a number that never changes, on a bar whose job is
   to change, invites being read as the answer.
 - **No Line Of Sight Timer** — 0.1 to 2 seconds, how long a refused shot holds
@@ -207,13 +207,8 @@ this. OmniBars will use either `IsUnitInSight(unitToken)` — a Nampower build
 extended the way `native/` extends it for distance — or **UnitXP_SP3**, whichever
 is present. With one of those the bar turns the moment you step behind a pillar.
 
-**Fallback Maximum Range** and **Fallback Dead Zone** are the range to assume
-when nothing can supply the real one: a relic in the ranged slot (paladin,
-shaman, druid), or a client without Nampower *and* an unrecognized weapon. On
-most installs they never come into play.
-
 Classes with a relic in the ranged slot have no ranged attack at all, so the bar
-becomes a plain distance readout using that fallback range.
+becomes a plain distance readout using an assumed 30 yards.
 
 **Druid Mana** — how much mana you still have in bear or cat form. Vanilla stops
 reporting it the moment you shift, so it is simulated from the shift onwards:
@@ -264,6 +259,16 @@ reports pass or fail per section. It changes nothing.
 
 The panel and the prompt are generated from the same table, so anything you can
 click you can type, and neither can drift out of step with the other.
+
+## Where the text sits
+
+Every label has a **Position** slider: 0 is hard left, 100 hard right, and
+anywhere in between is a place you can put it. That replaces Swap Text Sides,
+which was the same choice with only two answers.
+
+The travel stops at the edge rather than letting a label hang off the end, and it
+stops sooner for a longer label — the clamp is against the text's own width, not
+a fixed inset.
 
 ## Moving things
 

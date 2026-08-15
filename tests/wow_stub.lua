@@ -160,6 +160,20 @@ local function newFontString(parent, layer, inherits)
     end
     f.SetJustifyH = function(self, v) self.justify = v end
     f.SetAlpha = function(self, v) self.alpha = v end
+
+    --[[ A rendered width, modelled rather than left to the auto-faking
+         metatable -- which would answer nil, and nil is the one value that makes
+         a clamp against the bar's edges silently do nothing.
+
+         Half the point size per character is a rough average for a proportional
+         face and wrong for any particular string. It does not need to be right:
+         what depends on it is "does this label still fit", and the shape of that
+         answer -- grows with the text, grows with the font size -- is what the
+         stub has to get right. ]]--
+    f.GetStringWidth = function(self)
+        return string.len(self.text or "") * ((self.fontSize or 12) * 0.5)
+    end
+
     return f
 end
 
@@ -324,6 +338,7 @@ function CreateFrame(ftype, name, parent, template)
     f.SetAutoFocus = noop
     f.SetMaxLetters = noop
     f.ClearFocus = noop
+    f.SetFocus = noop
     f.SetFont = noop
     f.SetJustifyH = noop
 
@@ -1043,10 +1058,65 @@ function StaticPopup_Show(name)
     return StaticPopupDialogs[name]
 end
 
--- accept a popup the way clicking its first button would
-function Stub.AcceptPopup(name)
+--[[ Accept a popup the way clicking its first button would.
+
+     The dialog frame is modelled rather than skipped, because 1.12 hands the
+     handlers no arguments at all: everything arrives through the `this` global,
+     and a dialog with `hasEditBox` grows a child named `<dialog>EditBox` that
+     the accept handler is expected to find by name. A stub that called
+     `OnAccept()` bare would pass any handler that ignored its input and fail
+     every handler that read it -- which is backwards. ]]--
+Stub.popupFrame = nil
+
+local function popupFrame()
+    if Stub.popupFrame then return Stub.popupFrame end
+
+    local dialog = CreateFrame("Frame", "StaticPopup1", UIParent)
+    dialog.box = CreateFrame("EditBox", "StaticPopup1EditBox", dialog)
+    dialog.box.parent = dialog
+
+    --[[ The accept **button**, because that is what `this` is when 1.12 calls
+         OnAccept -- which is why every vanilla addon reaches the dialog as
+         `this:GetParent()`. Setting `this` to the dialog itself would make that
+         idiom resolve to UIParent and quietly find no edit box. ]]--
+    dialog.button = CreateFrame("Button", "StaticPopup1Button1", dialog)
+    dialog.button.parent = dialog
+
+    Stub.popupFrame = dialog
+    return dialog
+end
+
+function Stub.AcceptPopup(name, text)
     local dialog = StaticPopupDialogs[name]
-    if dialog and dialog.OnAccept then dialog.OnAccept() end
+    if not dialog then return end
+
+    local frame = popupFrame()
+    local previous = this
+
+    if dialog.hasEditBox then
+        this = frame
+        if dialog.OnShow then dialog.OnShow() end
+        frame.box:SetText(text or "")
+    end
+
+    this = frame.button
+    if dialog.OnAccept then dialog.OnAccept() end
+
+    this = previous
+end
+
+-- press Enter in a popup's edit box, which is a separate handler from OnAccept
+function Stub.PopupEnter(name, text)
+    local dialog = StaticPopupDialogs[name]
+    if not dialog or not dialog.EditBoxOnEnterPressed then return end
+
+    local frame = popupFrame()
+    frame.box:SetText(text or "")
+
+    local previous = this
+    this = frame.box
+    dialog.EditBoxOnEnterPressed()
+    this = previous
 end
 
 function ShowUIPanel(frame) if frame and frame.Show then frame:Show() end end

@@ -962,8 +962,13 @@ function OB.ParseOption(w, args)
         if not values then return "no values for this option" end
 
         if enum then
+            --[[ Compared as text, because an enum's values do not have to be
+                 strings. Decimal Points stores 0, 1 or 2 as numbers -- it was a
+                 slider and the saved values are numeric -- and a raw `==`
+                 against the typed argument could never match one, so the prompt
+                 silently rejected every value the panel offered. ]]--
             for i = 1, table.getn(values) do
-                if values[i] == args then
+                if tostring(values[i]) == args then
                     OB.ApplyOption(w, values[i])
                     return nil
                 end
@@ -1264,27 +1269,15 @@ local function buildProfilesPage(page)
     place(page, drop, { kind = "list", key = "", scope = "global" }, 1)
     drop.alwaysShow = true
 
-    local box = CreateFrame("EditBox", "EqOBProfileName", page, "InputBoxTemplate")
-    box:SetWidth(180)
-    box:SetHeight(20)
-    box:SetAutoFocus(false)
-    box:SetMaxLetters(24)
-    box:SetFont(STANDARD_TEXT_FONT, 11)
-    box:SetScript("OnEscapePressed", function() this:ClearFocus() end)
-    box.Update = function() end
-    place(page, box, { kind = "editbox", key = "", scope = "global" }, 1)
-    box.alwaysShow = true
+    --[[ A button and a popup, not a text box and a button.
 
-    addButton(page, "Create From Current", 190, 1, function()
-        local name = box:GetText()
-        if not name or name == "" then
-            OB.Print("type a name for the new profile first.")
-            return
-        end
-        box:SetText("")
-        box:ClearFocus()
-        OB.NewProfile(name)
-        OB.RefreshPanel()
+         The box sat on the page whether or not anybody was making a profile,
+         labelled with nothing, next to a button that only worked once something
+         had been typed into it -- so the usual first experience of it was
+         pressing the button and being told off. The popup asks for the name at
+         the moment the name is wanted, and cannot be pressed too early. ]]--
+    addButton(page, "Create New Profile", 190, 1, function()
+        StaticPopup_Show("EQOB_NEW_PROFILE")
     end)
 
     addButton(page, "Reset This Profile", 190, 1, function()
@@ -1495,6 +1488,56 @@ end
 -- ---------------------------------------------------------------------------
 -- confirmations
 -- ---------------------------------------------------------------------------
+
+--[[ 1.12's StaticPopup grows an edit box from `hasEditBox` and hands it to the
+     handlers as the dialog's child, which is why the name is read back off
+     `this` rather than from a frame this file holds a reference to.
+
+     OnAccept and the box's own enter key both have to be wired: a dialog with a
+     text field that ignores Enter is one people type into and then wonder at. ]]--
+local function createProfileFrom(dialog)
+    local box = dialog and getglobal(dialog:GetName() .. "EditBox")
+    local name = box and box:GetText()
+
+    if not name or name == "" then
+        OB.Print("a new profile needs a name.")
+        return
+    end
+
+    OB.NewProfile(name)
+    OB.RefreshPanel()
+end
+
+StaticPopupDialogs["EQOB_NEW_PROFILE"] = {
+    text = "Name the new profile.\n\nIt starts as a copy of the one in use.",
+    button1 = "Create",
+    button2 = "Cancel",
+    hasEditBox = 1,
+    maxLetters = 24,
+
+    OnShow = function()
+        local box = getglobal(this:GetName() .. "EditBox")
+        if box then
+            box:SetText("")
+            box:SetFocus()
+        end
+    end,
+
+    OnAccept = function() createProfileFrom(this:GetParent()) end,
+
+    EditBoxOnEnterPressed = function()
+        local dialog = this:GetParent()
+        createProfileFrom(dialog)
+        if dialog and dialog.Hide then dialog:Hide() end
+    end,
+
+    EditBoxOnEscapePressed = function()
+        local dialog = this:GetParent()
+        if dialog and dialog.Hide then dialog:Hide() end
+    end,
+
+    timeout = 0, whileDead = 1, hideOnEscape = 1,
+}
 
 StaticPopupDialogs["EQOB_RESET_PROFILE"] = {
     text = "Restore this profile to its defaults?\n\nOther profiles are left alone.",

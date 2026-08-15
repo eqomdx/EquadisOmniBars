@@ -24,6 +24,7 @@ local M = OB.RegisterModule({
         color = { 0.10, 0.75, 0.20, 1 },
         classColor = false,
         textMode = "max",
+        textPos = 50,
 
         --[[ Reserved, and read by nothing. The intent is a bar that slides from
              green through to red as health falls, the way the threat meter
@@ -53,6 +54,7 @@ local M = OB.RegisterModule({
                 { "none", "value", "percent", "max", "valuepct", "maxpct" },
                 { "None", "Current Only", "Percentage", "Current / Max",
                   "Current (Percent)", "Current / Max (Percent)" }) },
+        { "Text Position", "textPos", "slider", 0, 100, 1 },
     },
 
     requires = { "UnitHealth", "UnitHealthMax" },
@@ -109,7 +111,8 @@ function M:OnDraw()
 
     OB.SetBarColor(self.frame, self:CurrentColor(fraction))
     OB.SetBarFill(self.frame, fraction, slot.flip)
-    self.frame.center:SetText(OB.FormatValue(value, max, cfg.textMode))
+    OB.SetBarText(self.frame, self.frame.center,
+            OB.FormatValue(value, max, cfg.textMode), cfg.textPos)
 end
 
 -- the low-health colour is chosen per draw, so styling only has to seed it

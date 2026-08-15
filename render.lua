@@ -171,13 +171,18 @@ function OB.CreateBar(name, parent)
          the explicit SetTextColor makes that a fact of this file rather than of
          whatever Blizzard ships. ApplyFont replaces face, size and outline a
          moment later, so colour is the only thing a template could leak. ]]--
+    --[[ Three text **slots**, not three positions. The names are historical: each
+         one used to be nailed to an edge, and now every one of them is placed by
+         OB.SetBarText wherever its module's position setting says. A module still
+         picks a slot per label so two labels cannot collide by accident, but
+         which end of the bar a slot sits at is the player's business. ]]--
     bar.left = OB.NewText(bar.textLayer, "OVERLAY", "GameFontHighlight")
-    bar.left:SetJustifyH("LEFT")
+    bar.left:SetJustifyH("CENTER")
     bar.left:SetTextColor(1, 1, 1)
     bar.left:SetPoint("LEFT", bar, "LEFT", 3, 0)
 
     bar.right = OB.NewText(bar.textLayer, "OVERLAY", "GameFontHighlight")
-    bar.right:SetJustifyH("RIGHT")
+    bar.right:SetJustifyH("CENTER")
     bar.right:SetTextColor(1, 1, 1)
     bar.right:SetPoint("RIGHT", bar, "RIGHT", -3, 0)
 
@@ -187,6 +192,51 @@ function OB.CreateBar(name, parent)
     bar.center:SetPoint("CENTER", bar, "CENTER", 0, 0)
 
     return bar
+end
+
+--[[ Put a label somewhere along the bar: 0 is hard left, 100 hard right.
+
+     A position rather than a side. "Left or right" was two choices and a swap
+     switch to get between them; this is the same thing with the whole width in
+     between, and it costs one slider instead of one boolean per pair of labels.
+
+     The clamp is the part worth reading. The anchor is the label's *centre*, so
+     at either extreme half of it would hang off the end -- so the travel stops
+     when an edge is reached rather than letting the text leave the bar. A label
+     wider than the bar is centred, because there is no position that helps and
+     jammed against one edge is worse than jammed in the middle. ]]--
+local TEXT_PAD = 3
+
+function OB.PlaceText(bar, text, pos)
+    local frac = (pos or 50) / 100
+    if frac < 0 then frac = 0 end
+    if frac > 1 then frac = 1 end
+
+    local width = bar:GetWidth() or 0
+    local half = (text:GetStringWidth() or 0) / 2
+
+    local x = TEXT_PAD + (frac * (width - (TEXT_PAD * 2)))
+    local low, high = TEXT_PAD + half, width - TEXT_PAD - half
+
+    if high < low then
+        x = width / 2
+    elseif x < low then
+        x = low
+    elseif x > high then
+        x = high
+    end
+
+    text:ClearAllPoints()
+    text:SetPoint("CENTER", bar, "LEFT", x, 0)
+end
+
+--[[ Set a label and place it, in that order.
+
+     The order is not incidental: the clamp needs the rendered width, and a font
+     string has none until it has been given something to say. ]]--
+function OB.SetBarText(bar, text, value, pos)
+    text:SetText(value or "")
+    OB.PlaceText(bar, text, pos)
 end
 
 -- built on demand: most bars never shade anything

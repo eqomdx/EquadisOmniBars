@@ -384,14 +384,43 @@ local t = { start = 0, period = 2 }
 OB.tickers.pulse.Reset(t, 100)
 eq(t.start, 100, "reset anchors to now")
 
-check(OB.tickers.pulse.Observe(t, 101, 60, 40), "a gain is reported as a tick")
-eq(t.start, 101, "a real tick re-anchors the cycle")
+--[[ **Energy does not only arrive on the tick, and a gain that is not the tick
+     must not move the phase.**
+
+     A rogue with Vigor gets 2 energy back on every poison application;
+     Relentless Strikes pays 25 on a finisher; Thistle Tea hands over 100. Each
+     one used to re-anchor the cycle, so the sweep restarted mid-beat and the
+     spark stopped predicting the one thing it exists to predict -- worst while
+     actually fighting, which is the only time anyone watches it.
+
+     The server's energy loop is a fixed two seconds and nothing a player does
+     shifts it. So a gain only counts when the cycle says a tick is due. ]]--
+check(not OB.tickers.pulse.Observe(t, 100.7, 42, 40),
+        "a two-energy refund mid-cycle is not a tick")
+eq(t.start, 100, "and leaves the phase exactly where it was")
+
+check(not OB.tickers.pulse.Observe(t, 101.4, 142, 42),
+        "nor is a hundred from Thistle Tea")
+eq(t.start, 100, "however large the gain")
+
+check(OB.tickers.pulse.Observe(t, 102, 60, 40), "a gain on the beat is the tick")
+eq(t.start, 102, "and re-anchors the cycle")
 
 -- capped: no gain for six seconds, so the cycle advances by whole periods and
 -- the phase stays on the beat rather than restarting off it
-check(not OB.tickers.pulse.Observe(t, 107, 100, 100), "no gain is not a tick")
-eq(t.start, 107, "capped cycles advance by whole periods")
-near((107 - t.start) / t.period, 0, 0.0001, "phase stays on the beat")
+check(not OB.tickers.pulse.Observe(t, 108, 100, 100), "no gain is not a tick")
+eq(t.start, 108, "capped cycles advance by whole periods")
+near((108 - t.start) / t.period, 0, 0.0001, "phase stays on the beat")
+
+--[[ It self-corrects. Anchored to the wrong beat -- a first observation that
+     happened to be a refund -- the real tick keeps arriving every two seconds,
+     and the first one to land past the wrong boundary takes the phase back. So
+     an error lasts at most one cycle rather than until the next reset. ]]--
+local wrong = { start = 0, period = 2 }
+OB.tickers.pulse.Reset(wrong, 200.5)
+check(OB.tickers.pulse.Observe(wrong, 202.5, 60, 40),
+        "a tick past the wrong boundary is still believed")
+eq(wrong.start, 202.5, "so a mis-anchored cycle recovers on its own")
 
 -- ---------------------------------------------------------------------------
 -- 5. the five second rule
@@ -834,6 +863,29 @@ check(EquadisOmniBarsDB.profiles.Raiding == nil, "a deleted profile is gone")
 
 OB.DeleteProfile("Default")
 check(EquadisOmniBarsDB.profiles.Default ~= nil, "Default cannot be deleted")
+
+--[[ **Named at the moment the name is wanted.**
+
+     Creating a profile used to be a text box that sat on the page whether or not
+     anybody was making one, labelled with nothing, beside a button that only
+     worked once something had been typed into it -- so pressing the button was
+     the natural first move and being told off was the natural first result. The
+     popup cannot be pressed too early. ]]--
+Stub.AcceptPopup("EQOB_NEW_PROFILE", "Dungeons")
+eq(OB.profileName, "Dungeons", "the popup creates and switches to the profile")
+
+-- Enter in the box is its own handler in 1.12, and a dialog that ignores it is
+-- one people type into and then wonder at
+Stub.PopupEnter("EQOB_NEW_PROFILE", "Battlegrounds")
+eq(OB.profileName, "Battlegrounds", "and the enter key does the same thing")
+
+-- an empty name creates nothing rather than a profile called ""
+local before = OB.profileName
+Stub.AcceptPopup("EQOB_NEW_PROFILE", "")
+eq(OB.profileName, before, "an empty name is refused")
+check(EquadisOmniBarsDB.profiles[""] == nil, "and leaves no nameless profile")
+
+OB.SetProfile("Default")
 
 --[[ Switching from the panel has to leave the panel telling the truth.
 
@@ -1376,14 +1428,22 @@ eq(range.spell, "Shoot", "a wand fires Shoot")
 eq(range.minRange, 0, "and has no dead zone")
 
 --[[ Paladins, shamans and druids carry a relic there. No auto-attack exists, so
-     the configured fallback stands and the bar stays a plain distance readout
-     rather than nothing at all. ]]--
+     an assumed range stands and the bar stays a plain distance readout rather
+     than nothing at all.
+
+     That assumption used to be two sliders, Fallback Maximum Range and Fallback
+     Dead Zone. They went because they were settings asking the wrong person:
+     Nampower supersedes both with the client's own numbers and the assumed
+     table covers every weapon without it, so the only case they ever reached was
+     this one -- and nobody can usefully tune how far they can shoot with an idol
+     they are not shooting. ]]--
 OB = boot("PALADIN", 0, { ranged = "Librams", nampower = true })
 range = OB.modules.distance
 eq(range.weapon, "Librams", "a relic is still read")
 check(range.spell == nil, "but fires nothing")
-eq(range.maxRange, OB.profile.modules.distance.maxRange,
-        "so the configured fallback range stands")
+eq(range.maxRange, 30, "so an assumed range stands")
+check(OB.profile.modules.distance.maxRange == nil,
+        "and the fallback sliders are gone")
 
 -- an empty ranged slot is the same case
 OB = boot("WARRIOR", 1, { nampower = true })
@@ -1617,9 +1677,9 @@ eq(range:DistanceText(), "20y", "and an exact distance floors onto the same one"
      reads as a failure rather than a distance. ]]--
 range.yards = nil
 range.bandLow, range.bandHigh = 0, 5
-eq(range:DistanceText(), "5y", "the closest band still reads five")
+eq(range:DistanceText(), "<5y", "the closest band is open at the bottom and says so")
 range.yards = 1
-eq(range:DistanceText(), "5y", "and so does an exact distance inside it")
+eq(range:DistanceText(), "<5y", "as is an exact distance inside it")
 
 --[[ Past fifty the exact figure stops being useful and the rungs get coarse, so
      one honest ceiling beats a number pretending otherwise. ]]--
@@ -1948,7 +2008,7 @@ check(rangeBar.bars == nil, "with no segment children at all")
      measurement is floored onto the same steps a band already sits on, so the
      label does not change character depending on whether the target is friendly
      or hostile. ]]--
-local stepped = { [1] = "5y", [23] = "20y", [55] = "50y+" }
+local stepped = { [1] = "<5y", [23] = "20y", [55] = "50y+" }
 for _, yards in ipairs({ 1, 23, 55 }) do
     readAt(range, yards)
     eq(rangeBar.center.text, stepped[yards],
@@ -2203,15 +2263,21 @@ check(not rangeBar:IsShown(), "and stays hidden through a refresh")
 Stub.Tick(0.05, 2)
 check(not rangeBar:IsShown(), "and a frame later")
 
---[[ The preview has to walk every state the live readout can produce, or someone
-     checking their colours would never see two of the four. ]]--
+--[[ The preview has to walk **every** state the live readout can produce, or
+     someone choosing their colours is picking swatches they cannot see.
+
+     Four of the five fall out of a distance, so the sweep runs out past the
+     readout's last step and back. The fifth does not: no amount of walking
+     produces "blocked", so the preview stages it at the far end of the sweep.
+     And the no-target colour is only reachable by dropping target -- which is
+     exactly what ends the preview -- so that is staged too. ]]--
 Stub.player.hasTarget = true
 OB.SetTestMode(true)
 
 local statesSeen = {}
 local noTargetFrames = 0
 
-for i = 1, 400 do
+for i = 1, 700 do
     Stub.Tick(0.05, 1)
     if range.state then
         statesSeen[range.state] = true
@@ -2224,7 +2290,8 @@ OB.SetTestMode(false)
 
 local stateCount = 0
 for _ in pairs(statesSeen) do stateCount = stateCount + 1 end
-eq(stateCount, 3, "the preview walks every state a target can be in")
+eq(stateCount, 4, "the preview walks every state a target can be in")
+check(statesSeen["nolos"], "including the blocked colour, which no distance produces")
 
 --[[ And then drops target for two seconds, which is the only way the fourth
      colour appears in a preview: seeing it for real means dropping target, and
@@ -2454,18 +2521,18 @@ OB = boot("ROGUE", 3, { savedVariables = {
             aux    = { x = 40, y = 38,  w = 150, h = 14 },
         },
         modules = {
-            swing_main = { decimals = 2, deplete = true },
+            swing_main = { decimals = 2, deplete = true, swap = true },
             --[[ Saved values, not absences: a merged-in default would satisfy
-                 the schema 9 assertions without the migration running at all,
-                 which is exactly the kind of test that passes forever and
-                 checks nothing. ]]--
+                 the schema 9 and 10 assertions without either migration running
+                 at all, which is exactly the kind of test that passes forever
+                 and checks nothing. ]]--
             range = { maxRange = 41, actionSlot = 25, capture = true,
                       noTargetColor = { 0, 0, 0, 0 } },
         },
     } },
 } })
 
-eq(OB.profile.schema, 9, "an old profile is migrated forward")
+eq(OB.profile.schema, 10, "an old profile is migrated forward")
 
 --[[ `hide` became `show`, inverted. A schema-2 profile carries no `show` at all,
      so the default supplies one and the migration has to overwrite it from the
@@ -2494,8 +2561,17 @@ check(OB.profile.slots.secondary ~= nil, "both of them")
 -- module settings move with their ids
 eq(OB.profile.modules.mainhand.decimals, 2, "module settings follow the rename")
 eq(OB.profile.modules.mainhand.deplete, true, "all of them")
-eq(OB.profile.modules.distance.maxRange, 41, "range became distance")
+eq(OB.profile.modules.distance.showText, true, "range became distance")
 check(OB.profile.modules.swing_main == nil, "and the old keys are gone")
+
+--[[ Schema 10: text sides became text positions, and the fallback range sliders
+     went. A saved Swap Text Sides converts to the two endpoints of the position
+     slider, so nothing anybody had set moves. ]]--
+eq(OB.profile.modules.mainhand.timerPos, 100, "a swapped timer lands on the right")
+eq(OB.profile.modules.mainhand.speedPos, 0, "and its speed on the left")
+check(OB.profile.modules.mainhand.swap == nil, "with the boolean gone")
+check(OB.profile.modules.distance.maxRange == nil, "the fallback range is dropped")
+check(OB.profile.modules.distance.deadZone == nil, "and the fallback dead zone")
 
 --[[ Schema 9: an invisible no-target bar was never a decision.
 
@@ -2995,6 +3071,73 @@ for i = 1, table.getn(order) do
 end
 
 -- ---------------------------------------------------------------------------
+-- 27. text positions
+-- ---------------------------------------------------------------------------
+
+--[[ A label's place on the bar is a position, not a side.
+
+     Every label used to be nailed to an edge, and one boolean per pair -- Swap
+     Text Sides -- was the only way between them. A 0-100 slider is the same
+     choice with the whole width in between, and it costs one control instead of
+     one mode. ]]--
+context = "text position: "
+
+EquadisOmniBarsDB = nil
+OB = boot("HUNTER", 0, { mainSpeed = 2.6 })
+
+local posBar = OB.modules.mainhand.frame
+local posCfg = OB.profile.modules.mainhand
+
+local function textX(text)
+    -- SetPoint records { point, relativeTo, relativePoint, x, y }
+    local p = text.points[1]
+    return p and p[4]
+end
+
+--[[ Anchored by its **centre**, always, so the position is one number rather
+     than a point-and-offset pair that means different things at each end. ]]--
+posCfg.timerPos = 50
+Stub.Tick(0.05, 2)
+eq(posBar.left.points[1][1], "CENTER", "a label is anchored by its centre")
+eq(posBar.left.points[1][3], "LEFT", "measured from the bar's left edge")
+near(textX(posBar.left), posBar:GetWidth() / 2, 1, "so fifty is the middle")
+
+posCfg.timerPos = 0
+Stub.Tick(0.05, 2)
+local atLeft = textX(posBar.left)
+
+posCfg.timerPos = 100
+Stub.Tick(0.05, 2)
+local atRight = textX(posBar.left)
+
+check(atRight > atLeft, "and a hundred is further right than zero")
+
+--[[ **The travel stops at the edge.** The anchor is the label's centre, so
+     without a clamp half of it would hang off the end at either extreme. ]]--
+check(atLeft > 0, "a label at zero is not half off the left edge")
+check(atRight < posBar:GetWidth(),
+        "nor is one at a hundred off the right")
+
+--[[ A wider label stops sooner, because the clamp is against the text's own
+     width rather than a fixed inset. ]]--
+posCfg.decimals = 2
+posCfg.timerPos = 100
+Stub.Tick(0.05, 2)
+check(textX(posBar.left) <= atRight,
+        "a longer label stops further from the edge")
+
+--[[ The two labels are independent, which is the thing the swap boolean could
+     not express: both on the same side, or crossed over, or anywhere. ]]--
+posCfg.timerPos, posCfg.speedPos = 100, 0
+Stub.Tick(0.05, 2)
+check(textX(posBar.left) > textX(posBar.right),
+        "the timer can sit to the right of the speed")
+
+posCfg.timerPos, posCfg.speedPos = 40, 60
+Stub.Tick(0.05, 2)
+check(textX(posBar.left) < textX(posBar.right),
+        "and back, without a mode to switch")
+-- ---------------------------------------------------------------------------
 -- report
 -- ---------------------------------------------------------------------------
 
@@ -3006,6 +3149,7 @@ end
 if failed == 0 then print("no failures") end
 print(string.rep("-", 70))
 print(string.format("%d passed, %d failed", passed, failed))
+
 
 local faked = Stub.UnknownMethods()
 if table.getn(faked) > 0 then

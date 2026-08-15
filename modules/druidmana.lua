@@ -91,6 +91,7 @@ local M = OB.RegisterModule({
     defaults = {
         color = { 0.20, 0.40, 0.90, 1 },
         textMode = "max",
+        textPos = 50,
         hideInCaster = true,
     },
 
@@ -100,6 +101,7 @@ local M = OB.RegisterModule({
                 { "none", "value", "percent", "max", "valuepct", "maxpct" },
                 { "None", "Current Only", "Percentage", "Current / Max",
                   "Current (Percent)", "Current / Max (Percent)" }) },
+        { "Text Position", "textPos", "slider", 0, 100, 1 },
         { "Hide In Caster Form", "hideInCaster", "boolean" },
     },
 
@@ -421,7 +423,8 @@ function M:OnDraw()
 
     OB.SetBarColor(self.frame, cfg.color)
     OB.SetBarFill(self.frame, fraction, slot.flip)
-    self.frame.center:SetText(OB.FormatValue(value, max, cfg.textMode))
+    OB.SetBarText(self.frame, self.frame.center,
+            OB.FormatValue(value, max, cfg.textMode), cfg.textPos)
 end
 
 -- ---------------------------------------------------------------------------
