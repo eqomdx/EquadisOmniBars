@@ -374,21 +374,22 @@ OB.rangeBackends.spell = {
     end,
 }
 
---[[ One watched action's range. Weaker than the spell check only because it
-     needs a slot number, and stronger than bands because 1.12's IsActionInRange
-     honours a minimum range -- pfUI's hunter bar swaps pages on exactly that. ]]--
+--[[ The auto-attack's own action button, found rather than configured -- see
+     M:FindActionSlot. Weaker than the spell check only because it depends on the
+     attack being on a bar at all, and stronger than bands because 1.12's
+     IsActionInRange honours a minimum range: pfUI's hunter bar swaps pages on
+     exactly that. ]]--
 OB.rangeBackends.action = {
     id = "action",
     name = "Action Range",
 
     Available = function(m)
         if type(IsActionInRange) ~= "function" then return false end
-        local slot = m:Config().actionSlot
-        return (slot and slot > 0) and true or false
+        return (m.actionSlot and m.actionSlot > 0) and true or false
     end,
 
     Read = function(m)
-        local result = IsActionInRange(m:Config().actionSlot)
+        local result = IsActionInRange(m.actionSlot)
 
         -- nil means the slot holds nothing that is range checked, which is a
         -- configuration problem rather than a reading. Say nothing.
@@ -462,8 +463,6 @@ local M = OB.RegisterModule({
         deadZone = 0,
 
         showText = true,
-        actionSlot = 0,
-        capture = false,
 
         --[[ Off, because it needs UnitXP SP3 and most installs do not have it.
              Switching it on without that says so once rather than doing nothing
@@ -480,10 +479,18 @@ local M = OB.RegisterModule({
              colour is the only thing telling them apart. ]]--
         noLosColor = { 0.55, 0.35, 0.85, 1 },
 
-        --[[ Fully transparent, which hides the bar outright rather than leaving
-             an empty trough. Give it any visible opacity and it becomes a drawn
-             placeholder instead -- see OnDraw. ]]--
-        noTargetColor = { 0, 0, 0, 0 },
+        --[[ #1f1f1f, a dark grey that is unmistakably *on*.
+
+             This used to be fully transparent, which hid the bar outright and
+             read as the feature being broken: the first thing anyone does after
+             enabling a bar is look for it, and with no target selected there was
+             nothing to find. A drawn placeholder answers that -- the bar is here,
+             it is working, it has nothing to say yet.
+
+             Any visible opacity switches OnDraw from hiding to drawing, so
+             taking the alpha back to 0 still hides it for anyone who preferred
+             that. ]]--
+        noTargetColor = { 0.12, 0.12, 0.12, 1 },
 
     },
 
@@ -501,8 +508,6 @@ local M = OB.RegisterModule({
         { "Check Line Of Sight", "losCheck", "boolean" },
         { "Fallback Maximum Range", "maxRange", "slider", 5, 100, 1 },
         { "Fallback Dead Zone", "deadZone", "slider", 0, 20, 1 },
-        { "Watched Action Slot", "actionSlot", "slider", 0, 120, 1 },
-        { "Capture Next Action", "capture", "boolean" },
     },
 
     --[[ Nothing from a client mod is listed. Every one is expected to be missing
@@ -591,6 +596,43 @@ function M:ScanWeapon()
         self.minRange, self.maxRange = minRange, maxRange
         self.spellId = spellId
     end
+
+    self.actionSlot = self:FindActionSlot()
+end
+
+--[[ Which action bar slot holds this player's ranged auto-attack, or nil.
+
+     This used to be two settings -- a 0-120 slider and a "capture the next
+     action you press" arming switch -- and neither survived contact with the
+     game. The slider asked for a number nobody can look up: action slots are not
+     the numbers on your bars, and there is no screen anywhere that shows them.
+     The capture replaced the global `UseAction`, which only catches a press if
+     every bar addon in the chain still calls the global at press time; a bar
+     replacement that took its own reference at load simply never reaches ours.
+
+     Both were asking the user to supply something the addon already knows. The
+     auto-attack's name is worked out just above, so the slot can be found by
+     looking for it -- no configuration, nothing to get wrong, and nothing on the
+     panel.
+
+     Read by tooltip, because 1.12 has no GetActionSpell -- through the addon's
+     own hidden tooltip rather than the player's, which would flicker on screen
+     a hundred and twenty times. Scanning that many slots is affordable here and
+     only here: this runs on login and on inventory changes, never on a draw. ]]--
+function M:FindActionSlot()
+    if not self.spell then return nil end
+    if type(HasAction) ~= "function" then return nil end
+
+    local tip = OB.ScanTooltip()
+    if type(tip.SetAction) ~= "function" then return nil end
+
+    for slot = 1, 120 do
+        if HasAction(slot) and pcall(tip.SetAction, tip, slot) then
+            if OB.ScanLine(1) == self.spell then return slot end
+        end
+    end
+
+    return nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -763,8 +805,8 @@ function M:WarnBlindToHostiles()
     self.warnedHostile = true
 
     OB.Print("this client can only measure range to friendly targets. Nampower"
-            .. " or a watched action slot (|cff69ccf0/eqob distance capture on|r)"
-            .. " covers hostile ones.")
+            .. " covers hostile ones, as does putting your ranged attack on an"
+            .. " action bar.")
 end
 
 function M:OnBind(slot)
@@ -919,63 +961,12 @@ function M:OnDraw()
     OB.HideBarTicks(bar)
 end
 
--- ---------------------------------------------------------------------------
--- capturing an action
--- ---------------------------------------------------------------------------
-
---[[ Arming replaces the global UseAction. There is no hooksecurefunc in 1.12, so
-     a global is the only join available, and the wrapper calls whatever it
-     displaced.
-
-     It is installed the first time capture is armed and never removed. A global
-     another addon may have chained onto since cannot be restored without
-     silently unhooking them, and a pass-through guarded by one boolean is
-     cheaper than the bookkeeping needed to try. Someone who never captures never
-     has UseAction touched at all. ]]--
-local hooked = false
-
-local function installCapture()
-    if hooked then return end
-    hooked = true
-
-    local previous = UseAction
-
-    UseAction = function(slot, checkCursor, onSelf)
-        if M.capturing then
-            M.capturing = false
-
-            local cfg = M:Config()
-            cfg.actionSlot = slot
-            cfg.capture = false
-
-            OB.Print("distance: now watching action slot " .. tostring(slot) .. ".")
-            M:Probe()
-            OB.Refresh(true)
-            OB.RefreshPanel()
-        end
-
-        return previous(slot, checkCursor, onSelf)
-    end
-end
-
+--[[ The fallback ranges feed ScanWeapon, so changing one has to re-scan before
+     it means anything. Probe re-runs the scan and then re-picks the backend. ]]--
 M.onChange = {
     backend = function() M:Probe() end,
-    actionSlot = function() M:Probe() end,
     maxRange = function() M:Probe() end,
     deadZone = function() M:Probe() end,
-
-    capture = function()
-        local cfg = M:Config()
-
-        if not cfg.capture then
-            M.capturing = false
-            return
-        end
-
-        installCapture()
-        M.capturing = true
-        OB.Print("distance: press the action you want watched.")
-    end,
 }
 
 -- ---------------------------------------------------------------------------

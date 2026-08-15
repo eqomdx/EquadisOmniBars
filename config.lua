@@ -59,7 +59,7 @@ end
      automatically for a rogue would move a hunter's bars. Restack Occupied Bars
      does it on demand -- see constraint 15. ]]--
 OB.defaults = {
-    schema = 8,
+    schema = 9,
 
     -- visibility
     show = true,
@@ -379,6 +379,32 @@ OB.profileMigrations = {
         for id, bar in pairs(p.slots) do
             bar.y = OB.ClampCoord(bar.y - (bar.h / 2))
             if bar.x ~= 0 then bar.x = OB.ClampCoord(bar.x + (bar.w / 2)) end
+        end
+    end },
+
+    --[[ The Distance bar's no-target colour stopped being invisible, and the two
+         action-slot settings stopped existing.
+
+         Constraint 29 governs the colour: an alpha of 0 was the *shipped
+         default*, so anyone still on it never chose an invisible bar -- they got
+         one, and reasonably read it as the feature not working. That default is
+         converted. Any other value, including a deliberate alpha of 0 reached by
+         dragging the slider down, is a decision and is left alone. The test for
+         "never chose" is an exact match against what shipped.
+
+         `actionSlot` and `capture` are simply removed: the slot is found now
+         rather than configured, so a stored number is a stale answer to a
+         question nobody is asked any more. ]]--
+    { 9, function(p)
+        local distance = p.modules and p.modules.distance
+        if not distance then return end
+
+        distance.actionSlot = nil
+        distance.capture = nil
+
+        local c = distance.noTargetColor
+        if c and c[1] == 0 and c[2] == 0 and c[3] == 0 and c[4] == 0 then
+            distance.noTargetColor = { 0.12, 0.12, 0.12, 1 }
         end
     end },
 }

@@ -107,6 +107,7 @@ local function boot(class, powerType, opts)
     Stub.tooltips = opts.tooltips or {}
     Stub.interactRefuses = false
     Stub.actionRange = opts.actionRange
+    Stub.actionBar = opts.actionBar or {}
 
     --[[ A client mod either injected its API before Lua ran or it did not, so
          each is off unless a test asks for it. Defaulting them *off* is
@@ -1437,32 +1438,34 @@ OB.modules.distance:Probe()
 Stub.FireEvent("PLAYER_ENTERING_WORLD")
 eq(table.getn(Stub.chat), chatBefore, "but only once")
 
--- the action backend is unavailable until it is told which action to watch
+--[[ The action backend **finds** its slot rather than being told.
+
+     It used to be two settings: a 0-120 slider, and a "capture the next action
+     you press" switch that replaced the global UseAction. The slider asked for a
+     number that appears on no screen in the game, and the capture only worked if
+     every bar addon in the chain still called the global at press time -- one
+     that took its own reference at load never reached it. Both asked the user to
+     supply something the addon already knows, since it works out the
+     auto-attack's name two functions earlier. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows" })
 OB.profile.modules.distance.backend = "action"
 OB.modules.distance:Probe()
-eq(OB.modules.distance.backend.id, "bands", "the action backend needs a slot to watch")
+eq(OB.modules.distance.backend.id, "bands",
+        "with the attack on no bar there is nothing to watch")
 
-OB.profile.modules.distance.actionSlot = 25
+OB = boot("HUNTER", 0, { ranged = "Bows",
+                         actionBar = { [25] = "Auto Shot", [3] = "Aimed Shot" } })
+OB.profile.modules.distance.backend = "action"
 OB.modules.distance:Probe()
-eq(OB.modules.distance.backend.id, "action", "and runs once it has one")
+eq(OB.modules.distance.actionSlot, 25, "the auto-attack is found on the bars")
+eq(OB.modules.distance.backend.id, "action", "and the backend runs off it")
 
---[[ Capture arms a wrapper around the global UseAction -- there is no
-     hooksecurefunc in 1.12 -- which records the next action pressed and then
-     stands down. The wrapper must still call whatever it displaced, or arming
-     capture once would break the player's action bars for the session. ]]--
-local capture = OB.optionIndex.modules.distance.capture
-OB.ApplyOption(capture, true)
-check(OB.modules.distance.capturing, "arming capture watches for the next action")
-
-UseAction(42, nil, nil)
-eq(OB.profile.modules.distance.actionSlot, 42, "pressing an action captures its slot")
-eq(Stub.lastAction, 42, "and the action itself still fires")
-check(not OB.modules.distance.capturing, "capture stands down after one press")
-check(not OB.profile.modules.distance.capture, "and the checkbox clears itself")
-
-UseAction(7, nil, nil)
-eq(OB.profile.modules.distance.actionSlot, 42, "a later press is not captured")
-eq(Stub.lastAction, 7, "but still fires")
+--[[ The *player's* auto-attack, not any ranged spell that happens to be bound.
+     A warrior with a gun fires Shoot Gun, so a bar holding Auto Shot is
+     somebody else's button and watching it would read a hunter's range. ]]--
+OB = boot("WARRIOR", 0, { ranged = "Guns", actionBar = { [11] = "Auto Shot" } })
+eq(OB.modules.distance.spell, "Shoot Gun", "a warrior fires Shoot Gun")
+eq(OB.modules.distance.actionSlot, nil, "so a bar holding Auto Shot is not a match")
 
 -- ---------------------------------------------------------------------------
 -- 22. the four states, from every backend
@@ -1782,15 +1785,30 @@ range = OB.modules.distance
 rangeCfg = OB.profile.modules.distance
 rangeBar = range.frame
 
---[[ No target at zero opacity takes the whole bar away, background included,
-     rather than leaving an empty trough -- which is the thing that reads as a
-     broken bar rather than an absent one. ]]--
-eq(rangeCfg.noTargetColor[4], 0, "the no-target colour ships fully transparent")
+--[[ No target ships **visible**: #1f1f1f, a dark grey that is unmistakably on.
+
+     It used to ship fully transparent, and that read as the feature being
+     broken. The first thing anyone does after enabling a bar is look for it, and
+     with nothing targeted there was nothing to find. A drawn placeholder answers
+     the question the empty screen could not: the bar is here, it works, it has
+     nothing to say yet. ]]--
+near(rangeCfg.noTargetColor[1], 0.12, 0.01, "the no-target colour ships dark grey")
+eq(rangeCfg.noTargetColor[4], 1, "and opaque")
 
 Stub.player.hasTarget = false
 range.nextPoll = 0
 Stub.Tick(0.05, 2)
-check(not rangeBar:IsShown(), "so no target hides the bar outright")
+check(rangeBar:IsShown(), "so no target draws a placeholder")
+near(rangeBar.fill.vertex[1], 0.12, 0.01, "in that colour")
+
+--[[ Taking the alpha to 0 still hides the bar outright, background included,
+     for anyone who preferred that -- the behaviour did not go away, it stopped
+     being the default. ]]--
+rangeCfg.noTargetColor = { 0, 0, 0, 0 }
+range.nextPoll = 0
+OB.SetDirty(range)
+Stub.Tick(0.05, 2)
+check(not rangeBar:IsShown(), "and zero opacity still hides it outright")
 
 --[[ And it stays hidden through a refresh.
 
@@ -1806,18 +1824,6 @@ OB.Refresh(true)
 check(not rangeBar:IsShown(), "and stays hidden through a refresh")
 Stub.Tick(0.05, 2)
 check(not rangeBar:IsShown(), "and a frame later")
-
---[[ Give it any visible opacity and it becomes a drawn placeholder instead,
-     which is what makes the colour a setting worth having rather than an
-     elaborate way of spelling "hidden". ]]--
-rangeCfg.noTargetColor = { 0.1, 0.1, 0.1, 0.5 }
-range.nextPoll = 0
-OB.SetDirty(range)
-Stub.Tick(0.05, 2)
-check(rangeBar:IsShown(), "a visible no-target colour draws a placeholder instead")
-near(rangeBar.fill.vertex[1], 0.1, 0.01, "in that colour")
-
-rangeCfg.noTargetColor = { 0, 0, 0, 0 }
 
 --[[ The preview has to walk every state the live readout can produce, or someone
      checking their colours would never see two of the four. ]]--
@@ -2028,7 +2034,11 @@ Stub.player.offSpeed = 1.7
 Stub.Tick(0.05, 2)
 check(OB.modules.offhand.frame:IsShown(), "and comes back when something is equipped")
 
--- the distance readout does the same with no target
+--[[ The distance readout is the deliberate exception, and only for no target: it
+     paints a dark grey placeholder instead of vanishing, because a bar that is
+     simply absent reads as a bar that is broken. It still hides outright for the
+     cases where it has nothing it *could* say -- no ranged weapon at all -- and
+     it hides for no target too if the colour is taken to zero opacity. ]]--
 Stub.player.hasTarget = true
 OB.modules.distance.nextPoll = 0
 Stub.Tick(0.05, 3)
@@ -2037,7 +2047,7 @@ check(OB.modules.distance.frame:IsShown(), "a target gives the distance bar some
 Stub.player.hasTarget = false
 OB.modules.distance.nextPoll = 0
 Stub.Tick(0.05, 3)
-check(not OB.modules.distance.frame:IsShown(), "no target and it hides rather than sitting empty")
+check(OB.modules.distance.frame:IsShown(), "and no target leaves a visible placeholder")
 
 -- ---------------------------------------------------------------------------
 -- 27. slots became bars
@@ -2067,12 +2077,17 @@ OB = boot("ROGUE", 3, { savedVariables = {
         },
         modules = {
             swing_main = { decimals = 2, deplete = true },
-            range = { maxRange = 41 },
+            --[[ Saved values, not absences: a merged-in default would satisfy
+                 the schema 9 assertions without the migration running at all,
+                 which is exactly the kind of test that passes forever and
+                 checks nothing. ]]--
+            range = { maxRange = 41, actionSlot = 25, capture = true,
+                      noTargetColor = { 0, 0, 0, 0 } },
         },
     } },
 } })
 
-eq(OB.profile.schema, 8, "an old profile is migrated forward")
+eq(OB.profile.schema, 9, "an old profile is migrated forward")
 
 --[[ `hide` became `show`, inverted. A schema-2 profile carries no `show` at all,
      so the default supplies one and the migration has to overwrite it from the
@@ -2103,6 +2118,18 @@ eq(OB.profile.modules.mainhand.decimals, 2, "module settings follow the rename")
 eq(OB.profile.modules.mainhand.deplete, true, "all of them")
 eq(OB.profile.modules.distance.maxRange, 41, "range became distance")
 check(OB.profile.modules.swing_main == nil, "and the old keys are gone")
+
+--[[ Schema 9: an invisible no-target bar was never a decision.
+
+     Zero opacity was the *shipped* default, so anyone still on it got an
+     invisible bar rather than choosing one -- constraint 29 again. It converts.
+     The two action settings go with it: the slot is found now, so a stored
+     number is a stale answer to a question nobody is asked any more. ]]--
+near(OB.profile.modules.distance.noTargetColor[1], 0.12,
+        0.001, "an untouched invisible no-target colour becomes the grey")
+near(OB.profile.modules.distance.noTargetColor[4], 1, 0.001, "and opaque")
+check(OB.profile.modules.distance.actionSlot == nil, "the watched slot is dropped")
+check(OB.profile.modules.distance.capture == nil, "and so is capture")
 
 -- the assignment layer is dropped outright, including a deliberate one
 check(OB.profile.assign == nil, "the assignment table is dropped")
@@ -2178,6 +2205,24 @@ OB.profile.slots.mainhand.show = false
 local kept = EquadisOmniBarsDB
 OB = boot("WARRIOR", 1, { name = "Upgrader", savedVariables = kept })
 eq(OB.profile.slots.mainhand.show, false, "a deliberate choice made since is kept")
+
+--[[ The other half of constraint 29, and the half that is easy to forget: a
+     colour somebody picked is a decision and survives schema 9 untouched, even
+     though the default it replaced did not. Only an exact match against what
+     shipped is rewritten. ]]--
+EquadisOmniBarsDB = nil
+OB = boot("HUNTER", 0, { name = "Picky", savedVariables = {
+    version = 1,
+    migrated = { roguebars = true },
+    chars = { ["Turtle WoW - Picky"] = "Default" },
+    profiles = { Default = {
+        schema = 8,
+        modules = { distance = { noTargetColor = { 0.4, 0.1, 0.6, 0.25 } } },
+    } },
+} })
+near(OB.profile.modules.distance.noTargetColor[1], 0.4, 0.001,
+        "a chosen no-target colour survives schema 9")
+near(OB.profile.modules.distance.noTargetColor[4], 0.25, 0.001, "alpha and all")
 
 --[[ One background for every bar: black at 50%, and the distance readout
      transparent because it is always full and coloured, so its background can

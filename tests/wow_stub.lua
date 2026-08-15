@@ -224,6 +224,19 @@ templates.GameTooltipTemplate = function(frame)
 
     frame.SetInventoryItem = function(self, unit, slot) load(self, "item" .. slot) end
     frame.SetSpell = function(self, index, bookType) load(self, "spell" .. index) end
+
+    --[[ 1.12 has no GetActionSpell, so the only way to learn what an action
+         button holds is to point a tooltip at it and read line one. The stub
+         answers from Stub.actionBar, which maps slot -> name. ]]--
+    frame.SetAction = function(self, slot)
+        self:ClearLines()
+
+        local name = Stub.actionBar and Stub.actionBar[slot]
+        if not name then return end
+
+        self:Line(1):SetText(name)
+        self.lineCount = 1
+    end
 end
 
 function CreateFrame(ftype, name, parent, template)
@@ -619,6 +632,15 @@ end
 function IsActionInRange(slot)
     if Stub.actionRange == nil then return nil end
     return Stub.actionRange
+end
+
+--[[ What is on the bars: slot -> the name its tooltip shows. Empty by default,
+     because most players do not keep their auto-attack on a bar and the addon
+     has to cope with not finding it. ]]--
+Stub.actionBar = {}
+
+function HasAction(slot)
+    return Stub.actionBar[slot] and 1 or nil
 end
 
 function UseAction(slot, checkCursor, onSelf)

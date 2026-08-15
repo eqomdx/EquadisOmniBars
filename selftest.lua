@@ -354,6 +354,18 @@ section("range backend", function(t)
 
     t:note(note)
 
+    --[[ The action slot is found rather than configured, so the only way to know
+         whether the scan worked is to say what it found. "not on a bar" is a
+         normal answer, not a fault: most players never put their auto-attack on
+         one, and the backend simply goes unused. ]]--
+    if m.spell then
+        if m.actionSlot then
+            t:note(m.spell .. " found on action slot " .. tostring(m.actionSlot))
+        else
+            t:note(m.spell .. " is not on an action bar")
+        end
+    end
+
     --[[ Which of the two line of sight routes this client is on, and it matters
          because they behave differently enough to be different features. The
          reactive one needs nothing installed but only knows after a shot has

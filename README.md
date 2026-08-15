@@ -8,7 +8,7 @@ One addon instead of eight. Unit frames, nameplates, aura bars, a damage meter, 
 threat meter and a class-aware combat HUD — sharing a single settings panel, a
 single media library, a single profile system, and one consistent look.
 
-> **Version 0.5.3 — in development.**
+> **Version 0.5.4 — in development.**
 > The combat HUD is implemented and working, including the range readout, the
 > ranged swing timer and a druid's secondary mana. The meters, unit frames and
 > nameplates on the roadmap below are not written yet. Expect the saved-variables
@@ -81,8 +81,8 @@ Drag them into whatever order you actually want.
 Each bar has a **Show Bar** switch, on by default. Bars your class cannot use are
 not listed at all: a warrior has no Extras and no Secondary Resource. And a bar
 with nothing to say hides itself whatever that switch says — no off hand
-equipped, nothing ranged equipped, no target for the Distance readout — so an
-empty off hand leaves no gap in the art, just space.
+equipped, nothing ranged equipped — so an empty off hand leaves no gap in the
+art, just space.
 
 That space is not closed up automatically, because bar positions are shared and
 closing a gap for one character would move another's. **Restack Occupied Bars**
@@ -121,7 +121,7 @@ full**, and its color is the whole answer. All five colors are yours to set:
 | Too close — inside a bow's dead zone | orange |
 | Too far | red |
 | No line of sight — something is in the way | violet, and off by default |
-| No target | fully transparent, which hides the bar |
+| No target | dark grey `#1f1f1f` — a placeholder, so you can see the bar is there |
 
 The question is about **your equipped ranged weapon**, not some generic distance.
 It reads your ranged slot, works out whether that is a bow, a gun, a crossbow, a
@@ -135,8 +135,12 @@ game's own range check, including the real minimum range. **SuperWoW** adds exac
 yardage for friendly units. Exact hostile yardage comes from Nampower when it
 exposes `GetUnitDistance`, or from **UnitXP_SP3**. Without an exact source,
 hostile targets still get the correct range state but not a numeric yardage. With
-none of these extensions it falls back to the game's coarse interaction
-distances, or to one action bar slot you nominate.
+none of these extensions it falls back to your ranged attack's own action button,
+found on your bars automatically, and failing that to the game's coarse
+interaction distances.
+
+Turn the No Target color's opacity down to zero if you would rather the bar
+vanish when you have nothing selected.
 
 **Check Line Of Sight** is off by default and needs nothing installed, but you
 should know how it works before turning it on. Vanilla will not let an addon
@@ -156,16 +160,10 @@ this. OmniBars will use either `IsUnitInSight(unitToken)` — a Nampower build
 extended the way `native/` extends it for distance — or **UnitXP_SP3**, whichever
 is present. With one of those the bar turns the moment you step behind a pillar.
 
-Two settings only matter when the above cannot answer, and on most installs they
-never come into play:
-
-- **Capture Next Action** — arms a one-shot capture; the next action button you
-  press becomes the one whose range is watched. Only used by the action-slot
-  fallback, which needs a slot number and has no way to find your auto-attack on
-  its own.
-- **Fallback Maximum Range** and **Fallback Dead Zone** — the range to assume
-  when nothing can supply the real one: a relic in the ranged slot (paladin,
-  shaman, druid), or a client without Nampower *and* an unrecognized weapon.
+**Fallback Maximum Range** and **Fallback Dead Zone** are the range to assume
+when nothing can supply the real one: a relic in the ranged slot (paladin,
+shaman, druid), or a client without Nampower *and* an unrecognized weapon. On
+most installs they never come into play.
 
 Classes with a relic in the ranged slot have no ranged attack at all, so the bar
 becomes a plain distance readout using that fallback range.
