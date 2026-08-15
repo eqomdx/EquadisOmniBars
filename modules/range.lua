@@ -2,11 +2,12 @@
 
   Can I hit my target from here, and how far away is it.
 
-  One bar, coloured by state. Four states, each with its own colour:
+  One bar, coloured by state. Five states, each with its own colour:
 
     in range     the equipped ranged weapon can reach the target
     too close    inside its minimum range -- the hunter dead zone
     too far      past its maximum
+    no line of sight  something is in the way (opt in; needs UnitXP_SP3)
     no target    nothing selected
 
   The question is deliberately about the *equipped weapon* rather than some
@@ -54,8 +55,8 @@ local RANGED_SLOT = 18
 
      Paladins, shamans and druids carry a relic in this slot rather than a
      weapon, so they match nothing here and have no ranged attack at all. That is
-     not an error: the bar falls back to a plain distance readout for them, which
-     is still worth having. ]]--
+     not an error, and not a range either: with no ranged attack the bar hides
+     entirely rather than advertising a fallback it invented. ]]--
 --[[ Candidates, in the order they are tried. The player has exactly one of each
      row and which one depends on the class, not on the weapon.
 
@@ -376,8 +377,6 @@ local M = OB.RegisterModule({
         deadZone = 0,
 
         showText = true,
-        showGoodRange = true,
-        swapText = false,
         actionSlot = 0,
         capture = false,
 
@@ -390,6 +389,11 @@ local M = OB.RegisterModule({
         inRangeColor = { 0.20, 0.80, 0.25, 1 },
         tooCloseColor = { 0.95, 0.55, 0.10, 1 },
         tooFarColor = { 0.80, 0.20, 0.20, 1 },
+
+        --[[ Violet, because it has to be unmistakably not-red: too far and no
+             line of sight are different problems with different fixes, and the
+             colour is the only thing telling them apart. ]]--
+        noLosColor = { 0.55, 0.35, 0.85, 1 },
 
         --[[ Fully transparent, which hides the bar outright rather than leaving
              an empty trough. Give it any visible opacity and it becomes a drawn
@@ -406,11 +410,10 @@ local M = OB.RegisterModule({
         { "In Range Color", "inRangeColor", "color", true },
         { "Too Close Color", "tooCloseColor", "color", true },
         { "Too Far Color", "tooFarColor", "color", true },
+        { "No Line Of Sight Color", "noLosColor", "color", true },
         { "No Target Color", "noTargetColor", "color", true },
         { "Show Yards", "showText", "boolean" },
-        { "Show Good Range", "showGoodRange", "boolean" },
-        { "Swap Text Sides", "swapText", "boolean" },
-        { "Out Of Range Without Line Of Sight", "losCheck", "boolean" },
+        { "Check Line Of Sight", "losCheck", "boolean" },
         { "Fallback Maximum Range", "maxRange", "slider", 5, 100, 1 },
         { "Fallback Dead Zone", "deadZone", "slider", 0, 20, 1 },
         { "Watched Action Slot", "actionSlot", "slider", 0, 120, 1 },
@@ -618,13 +621,20 @@ function M:Read()
 
          Only when the client can actually tell. A nil answer means "no opinion",
          not "blocked" -- see OB.InSight. ]]--
+    --[[ Its own state and its own colour, rather than folded into "too far".
+
+         They are different problems with different fixes: too far means walk
+         closer, no line of sight means step around the thing in the way. Painting
+         both red tells you to do the wrong one half the time -- and at the moment
+         you are standing well inside range wondering why nothing is firing, that
+         is exactly the half you needed. ]]--
     if self:Config().losCheck then
         local sight = OB.InSight("target")
 
         if sight == nil then
             self:WarnNoLineOfSight()
         elseif not sight then
-            return "toofar", yards
+            return "nolos", yards
         end
     end
 
@@ -694,6 +704,7 @@ function M:StateColor(state)
     if state == "inrange" then return cfg.inRangeColor end
     if state == "tooclose" then return cfg.tooCloseColor end
     if state == "toofar" then return cfg.tooFarColor end
+    if state == "nolos" then return cfg.noLosColor end
     return cfg.noTargetColor
 end
 
@@ -708,12 +719,6 @@ end
 function M:YardsText()
     if self.yards then return tostring(OB.Round(self.yards)) .. "y" end
     return ""
-end
-
-function M:GoodRangeText()
-    if not self.maxRange then return "" end
-    return "[" .. tostring(OB.Round(self.minRange or 0)) .. "-"
-            .. tostring(OB.Round(self.maxRange)) .. "y]"
 end
 
 function M:OnStyle(slot)
@@ -734,6 +739,21 @@ function M:OnDraw()
          Any visible opacity turns it back into a drawn placeholder, which is
          what makes the No Target colour a setting worth having rather than an
          elaborate way of spelling "hidden". ]]--
+    --[[ No ranged attack at all: the bar goes, whatever is targeted.
+
+         A warrior with an empty ranged slot, or a paladin, shaman or druid with
+         a relic in it, has nothing that can be in or out of range -- so "can I
+         hit my target from here" has no answer rather than a pessimistic one.
+
+         It used to fall back to the configured range instead and advertise it,
+         which is where a warrior holding no gun got told `[8-90y]`: a confident
+         interval describing a weapon that did not exist. Constraint 24 -- a bar
+         with nothing to draw hides itself. ]]--
+    if not self.spell then
+        OB.SetBarShown(self, false)
+        return
+    end
+
     if not self.state and (color[4] or 1) <= 0 then
         OB.SetBarShown(self, false)
         return
@@ -757,18 +777,24 @@ function M:OnDraw()
     OB.SetBarFill(bar, 1, slot.flip)
     OB.SetBarColor(bar, color)
 
-    local yardsText, goodRangeText = "", ""
-    if cfg.showText then yardsText = self:YardsText() end
-    if cfg.showGoodRange and self.state then goodRangeText = self:GoodRangeText() end
+    --[[ One piece of text, and only when there is a real live distance to put in
+         it. There used to be a second, `[8-90y]`, spelling out the equipped
+         attack's whole good range on the other side.
 
-    bar.center:SetText("")
-    if cfg.swapText then
-        bar.left:SetText(goodRangeText)
-        bar.right:SetText(yardsText)
-    else
-        bar.left:SetText(yardsText)
-        bar.right:SetText(goodRangeText)
-    end
+         It went because it was the wrong shape of fact. A static interval next to
+         a live counter reads as though both are measurements, and without a live
+         counter -- which is every stock install, since no vanilla API and no
+         loadable client mod here gives an exact distance to a *hostile* unit --
+         it is the only number on the bar, and it never changes. A number that
+         never changes on a bar whose whole job is to change is worse than no
+         number: it invites you to read it as the answer. The colour is the
+         answer. ]]--
+    local yardsText = ""
+    if cfg.showText then yardsText = self:YardsText() end
+
+    bar.left:SetText("")
+    bar.right:SetText("")
+    bar.center:SetText(yardsText)
 
     -- the dead zone edge used to be ticked, marking where a draining fill would
     -- cross it. With nothing draining there is no crossing to mark.

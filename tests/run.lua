@@ -1585,45 +1585,76 @@ local rangeBar = range.frame
 check(rangeBar.fill ~= nil, "the readout is a single bar")
 check(rangeBar.bars == nil, "with no segment children at all")
 
--- current yards and the equipped attack's good maximum are separate labels
+--[[ One label, and only when there is a live distance to put in it.
+
+     There was a second, `[9-41y]`, spelling out the equipped attack's whole good
+     range on the other side. It went because it is the wrong shape of fact: a
+     static interval beside a live counter reads as though both are measurements,
+     and on a stock install -- where nothing can give an exact distance to a
+     hostile unit -- it was the only number on the bar and it never changed. A
+     number that never changes, on a bar whose whole job is to change, invites
+     being read as the answer. The colour is the answer. ]]--
 for _, yards in ipairs({ 1, 23, 55 }) do
     readAt(range, yards)
-    eq(rangeBar.left.text, tostring(yards) .. "y",
-            "current yards stay an exact counter at " .. tostring(yards))
+    eq(rangeBar.center.text, tostring(yards) .. "y",
+            "the live distance reads exactly at " .. tostring(yards))
 end
 
-readAt(range, 23)
-eq(rangeBar.left.text, "23y", "current yards draw on the left")
-eq(rangeBar.right.text, "[9-41y]", "the full good range draws in brackets on the right")
-eq(rangeBar.center.text, "", "the old centre readout is cleared")
-
-range.minRange, range.maxRange = 8, 30
-eq(range:GoodRangeText(), "[8-30y]", "good range includes both weapon limits")
-range:ScanWeapon()
-
-rangeCfg.swapText = true
-OB.SetDirty(range)
-Stub.Tick(0.05, 1)
-eq(rangeBar.left.text, "[9-41y]", "the two labels can swap sides")
-eq(rangeBar.right.text, "23y", "without changing their contents")
+eq(rangeBar.left.text, "", "nothing is drawn on the left")
+eq(rangeBar.right.text, "", "nor on the right")
 
 rangeCfg.showText = false
 OB.SetDirty(range)
 Stub.Tick(0.05, 1)
-eq(rangeBar.right.text, "", "yards can be hidden independently")
-eq(rangeBar.left.text, "[9-41y]", "while good range remains")
-
+eq(rangeBar.center.text, "", "and the one label can be switched off")
 rangeCfg.showText = true
-rangeCfg.showGoodRange = false
-rangeCfg.swapText = false
-OB.SetDirty(range)
-Stub.Tick(0.05, 1)
-eq(rangeBar.left.text, "23y", "yards remain when good range is hidden")
-eq(rangeBar.right.text, "", "good range has its own toggle")
 
-rangeCfg.showGoodRange = true
+--[[ No ranged attack at all: the bar goes, whatever is targeted.
 
--- each state paints the bar its own colour
+     A warrior with an empty ranged slot has nothing that can be in or out of
+     range, so the question has no answer rather than a pessimistic one. It used
+     to fall back to the configured range and advertise it, which is how a warrior
+     holding no gun got told `[8-90y]` -- a confident interval describing a weapon
+     that did not exist. ]]--
+local noWeapon = boot("WARRIOR", 1, { hasTarget = true, nampower = true })
+check(noWeapon.modules.distance.spell == nil, "an empty ranged slot has no auto-attack")
+noWeapon.modules.distance.nextPoll = 0
+Stub.Tick(0.05, 3)
+check(not noWeapon.modules.distance.frame:IsShown(),
+        "so the bar hides rather than inventing a range")
+
+-- a relic is the same case: paladins, shamans and druids have no ranged attack
+noWeapon = boot("PALADIN", 0, { ranged = "Librams", hasTarget = true, nampower = true })
+noWeapon.modules.distance.nextPoll = 0
+Stub.Tick(0.05, 3)
+check(not noWeapon.modules.distance.frame:IsShown(), "a relic hides it too")
+
+--[[ No line of sight is its **own** state and its own colour.
+
+     Too far means walk closer; no line of sight means step around the thing in
+     the way. Painting both red tells you to do the wrong one half the time, and
+     standing well inside range wondering why nothing fires is exactly the half
+     you needed. ]]--
+OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true, nampowerDistance = true,
+                         hasTarget = true, unitXP = true, lineOfSight = true })
+range = OB.modules.distance
+rangeBar = range.frame
+rangeCfg = OB.profile.modules.distance
+rangeCfg.losCheck = true
+
+Stub.player.inSight = true
+eq(readAt(range, 20), "inrange", "in sight and in range is in range")
+
+Stub.player.inSight = false
+eq(readAt(range, 20), "nolos", "blocked at the same distance is its own state")
+near(rangeBar.fill.vertex[1], rangeCfg.noLosColor[1], 0.01, "with its own colour")
+check(rangeCfg.noLosColor[1] ~= rangeCfg.tooFarColor[1],
+        "which is not the too-far colour")
+
+-- and the check is opt-in
+rangeCfg.losCheck = false
+eq(readAt(range, 20), "inrange", "with the check off, sight is not consulted")
+Stub.player.inSight = true
 readAt(range, 3)
 near(rangeBar.fill.vertex[1], rangeCfg.tooCloseColor[1], 0.01, "too close has its colour")
 readAt(range, 20)
@@ -1659,8 +1690,8 @@ range = OB.modules.distance
 rangeBar = range.frame
 eq(readAt(range, 20), "inrange", "a hostile still gets a range state")
 eq(range.yards, 20, "Nampower reports the hostile target's exact distance")
-eq(rangeBar.left.text, "20y", "the exact hostile yards draw on the left")
-eq(rangeBar.right.text, "[9-41y]", "the known good range stays bracketed on the right")
+eq(rangeBar.center.text, "20y", "the exact hostile yards are shown")
+eq(rangeBar.left.text, "", "and nothing is bracketed beside them")
 
 -- return to a measured readout for the remaining draw and preview checks
 OB = boot("HUNTER", 0, { ranged = "Bows", nampower = true,
@@ -1899,7 +1930,7 @@ check(not mana.frame:IsShown(), "and the bar stays hidden rather than inventing 
 context = "empty bars: "
 
 EquadisOmniBarsDB = nil
-OB = boot("ROGUE", 3, { offSpeed = 1.7 })
+OB = boot("ROGUE", 3, { offSpeed = 1.7, ranged = "Bows" })
 OB.profile.slots.distance.show = true
 OB.Refresh(true)
 Stub.Tick(0.05, 2)
