@@ -1,0 +1,2 @@
+Source supplied by user: https://github.com/CosminPOP/AtlasLoot.git
+Commit: 78022f8531d5095f32858514747c2c54ddcfe7e9

@@ -1,0 +1,483 @@
+--- TODO check for Azshara BG for V+
+
+--- MapMarkers.lua - Map markers module for Atlas-CFM
+---
+--- Integrates ModernMapMarkers functionality into Atlas-CFM.
+--- Shows icons for dungeons, raids, world bosses, and transport on the World Map.
+---
+--- @compatible World of Warcraft 1.12
+--- @originalauthor tilr & Heallios
+---
+
+local _G = getfenv()
+AtlasCFM = _G.AtlasCFM or {}
+AtlasCFM.MapMarkers = {}
+
+local L = AtlasCFM.Localization.UI
+local LF = AtlasCFM.Localization.Factions
+local LZ = AtlasCFM.Localization.Zones
+local LB = AtlasCFM.Localization.Bosses
+local LMD = AtlasCFM.Localization.MapData
+
+local markers = {}
+local pinPool = {}
+local ZoneMapPoints = {} -- Index for faster lookup
+
+-- Texture Constants
+local TEXTURE_PATH = AtlasCFM.PATH .. "Images\\Markers\\"
+local TEXTURE_DUNGEON = TEXTURE_PATH .. "dungeon"
+local TEXTURE_RAID = TEXTURE_PATH .. "raid"
+local TEXTURE_WORLDBOSS = TEXTURE_PATH .. "worldboss"
+local TEXTURE_ZEPP = TEXTURE_PATH .. "zepp"
+local TEXTURE_BOAT = TEXTURE_PATH .. "boat"
+local TEXTURE_TRAM = TEXTURE_PATH .. "tram"
+
+local TEXTURE_MAP = {
+    dungeon = TEXTURE_DUNGEON,
+    raid = TEXTURE_RAID,
+    worldboss = TEXTURE_WORLDBOSS,
+    zepp = TEXTURE_ZEPP,
+    boat = TEXTURE_BOAT,
+    tram = TEXTURE_TRAM
+}
+
+-- Marker Data
+-- Format: { continent, EN zone name, x, y, key, type, info, servers, dest = ... }
+-- type: "dungeon", "raid", "worldboss", "zepp", "boat", "tram"
+-- dest: transport only. Where the route leads, as { continent, EN zone name }, or a
+--       list of those pairs for multi-stop routes. Left-clicking a transport pin moves
+--       the World Map to that zone (each further click steps to the next stop).
+local MapPoints = {
+    -- Kalimdor Dungeons
+    { 1, "Ashenvale",           0.123, 0.128, "BlackfathomDeeps",          "dungeon",   "24-32" },
+    { 1, "Tanaris",             0.66,  0.49,  "CavernsOfTimeBlackMorass",  "dungeon",   "58-60",                                                                { AtlasCFM.Server.TURTLE1 } }, -- 1.17.2
+    { 1, "Ashenvale",           0.51,  0.78,  "TheCrescentGrove",          "dungeon",   "32-38",                                                                { AtlasCFM.Server.TURTLE1 } }, -- 1.17.2
+    { 1, "Feralas",             0.648, 0.303, "DireMaulEast",              "dungeon",   "55-58" },
+    { 1, "Feralas",             0.624, 0.249, "DireMaulNorth",             "dungeon",   "57-60" },
+    { 1, "Feralas",             0.604, 0.311, "DireMaulWest",              "dungeon",   "57-60" },
+    { 1, "Desolace",            0.29,  0.629, "Maraudon",                  "dungeon",   "46-55" },
+    { 1, "Orgrimmar",           0.53,  0.486, "RagefireChasm",             "dungeon",   "13-18" },
+    { 1, "The Barrens",         0.488, 0.919, "RazorfenDowns",             "dungeon",   "37-46" },
+    { 1, "The Barrens",         0.407, 0.873, "RazorfenKraul",             "dungeon",   "29-38" },
+    { 1, "The Barrens",         0.462, 0.357, "WailingCaverns",            "dungeon",   "17-24" },
+    { 1, "Thousand Needles",    0.65,  0.46,  "WindhornCanyon",            "dungeon",   "26-30",                                                                { AtlasCFM.Server.TURTLE } }, --1.18.1
+    { 1, "Tanaris",             0.389, 0.184, "ZulFarrak",                 "dungeon",   "44-54" },
+    -- Kalimdor Raids
+    { 1, "Hyjal",               0.207, 0.592, "EmeraldSanctum",            "raid",      "60",                                                                   { AtlasCFM.Server.TURTLE1 } }, -- 1.17.2
+    { 1, "Dustwallow Marsh",    0.53,  0.76,  "OnyxiasLair",               "raid",      "60" },
+    { 1, "Silithus",            0.30,  0.95,  "TheRuinsofAhnQiraj",        "raid",      "60" },
+    { 1, "Silithus",            0.28,  0.95,  "TheTempleofAhnQiraj",       "raid",      "60" },
+    { 1, "Azshara",             0.38,  0.33,  "TimbermawHold",             "raid",      "60",                                                                   { AtlasCFM.Server.TURTLE } }, --1.18.1
+    -- Kalimdor World Bosses
+    { 1, "Azshara",             0.535, 0.816, "Azuregos",                  "worldboss", "60" },
+    { 1, "Azshara",             0.69,  0.094, "Clackora",                  "worldboss", "60",                                                                   { AtlasCFM.Server.TURTLE } }, --1.18
+    { 1, "Winterspring",        0.65,  0.80,  "LadyHederine",              "worldboss", "60",                                                                   { AtlasCFM.Server.VANILLA_PLUS } },
+    { 1, "Silithus",            0.40,  0.47,  "Kurinnaxx",                 "worldboss", "60",                                                                   { AtlasCFM.Server.VANILLA_PLUS } },
+    { 1, "Un'Goro Crater",      0.37, 0.37,   "KingMosh",                  "worldboss", "60",                                                                   { AtlasCFM.Server.VANILLA_PLUS } },
+    { 1, "Desolace",            0.82,  0.80,  "Concavius",                 "worldboss", "60",                                                                   { AtlasCFM.Server.TURTLE1 } }, --1.17.2
+    { 1, "Tanaris",             0.361, 0.762, "Ostarius",                  "worldboss", "60",                                                                   { AtlasCFM.Server.TURTLE1 } }, --1.17.2
+    { 1, "Ashenvale",           0.937, 0.355, "FourDragons",               "worldboss", "60" .. " (" .. LB["Ysondre"] .. ")" },                                             -- Emerald Dragon - Ysondre
+    { 1, "Feralas",             0.512, 0.108, "FourDragons",               "worldboss", "60" .. " (" .. LB["Taerar"] .. ")" },                                              -- Emerald Dragon - Taerar
+    -- Kalimdor Transport
+    { 1, "Durotar",             0.51,  0.145, "TransportRoutes",           "zepp",      LZ["Undercity"],                                                                                                                     dest = { 2, "Tirisfal Glades" } }, -- Zeppelins to UC
+    { 1, "Durotar",             0.51,  0.115, "TransportRoutes",           "zepp",      LMD["Grom'Gol"],                                                        { AtlasCFM.Server.TURTLE1, AtlasCFM.Server.CLASSIC },        dest = { 2, "Stranglethorn Vale" } }, -- Zeppelins to Grom'Gol
+    { 1, "Durotar",             0.51,  0.115, "TransportRoutes",           "zepp",      LMD["Kargath"],                                                         { AtlasCFM.Server.VANILLA_PLUS },                            dest = { 2, "Badlands" } }, -- Zeppelins to Kargath
+    { 1, "Durotar",             0.41,  0.195, "TransportRoutes",           "zepp",      LZ["Thunder Bluff"],                                                    { AtlasCFM.Server.TURTLE1 },                                 dest = { 1, "Thunder Bluff" } }, -- Zeppelins to TB
+    { 1, "Durotar",             0.41,  0.165, "TransportRoutes",           "zepp",      LMD["Kargath"],                                                         { AtlasCFM.Server.TURTLE1 },                                 dest = { 2, "Badlands" } }, -- Zeppelins to Kargath
+    { 1, "Thunder Bluff",       0.165, 0.230, "TransportRoutes",           "zepp",      LZ["Orgrimmar"],                                                        { AtlasCFM.Server.TURTLE1 },                                 dest = { 1, "Durotar" } }, -- Zeppelin to Orgrimmar
+    { 1, "Durotar",             0.598, 0.236, "TransportRoutes",           "boat",      LMD["Revantusk Village"],                                               { AtlasCFM.Server.TURTLE1 },                                 dest = { 2, "The Hinterlands" } }, -- Boat to Revantusk Village
+    { 1, "The Barrens",         0.636, 0.389, "TransportRoutes",           "boat",      LZ["Booty Bay"] .. ", " .. LZ["Tanaris"],                               { AtlasCFM.Server.VANILLA_PLUS },                            dest = { { 2, "Stranglethorn Vale" }, { 1, "Tanaris" } } }, -- Boat to Booty Bay, Tanaris
+    { 1, "The Barrens",         0.636, 0.389, "TransportRoutes",           "boat",      LZ["Booty Bay"],                                                        { AtlasCFM.Server.TURTLE1, AtlasCFM.Server.CLASSIC },        dest = { 2, "Stranglethorn Vale" } }, -- Boat to Booty Bay
+    { 1, "Darkshore",           0.324, 0.44,  "TransportRoutes",           "boat",      LF["Stormwind"],                                                        { AtlasCFM.Server.TURTLE1 },                                 dest = { 2, "Stormwind City" } }, -- Boat to Stormwind
+    { 1, "Darkshore",           0.324, 0.44,  "TransportRoutes",           "boat",      LF["Menethil Harbor"],                                                  { AtlasCFM.Server.CLASSIC, AtlasCFM.Server.VANILLA_PLUS },   dest = { 2, "Wetlands" } }, -- Boat to Menethil
+    { 1, "Darkshore",           0.304, 0.41,  "TransportRoutes",           "boat",      LMD["Alah'Thalas"],                                                     { AtlasCFM.Server.TURTLE1 },                                 dest = { 2, "Alah'Thalas" } }, -- Boat to Alah'Thalas (1.17.2)
+    { 1, "Darkshore",           0.333, 0.399, "TransportRoutes",           "boat",      LMD["Rut'Theran Village"],                                                                                                           dest = { 1, "Teldrassil" } }, -- Boat to Rut'Theran Village
+    { 1, "Dustwallow Marsh",    0.718, 0.566, "TransportRoutes",           "boat",      LZ["Menethil Harbor"],                                                                                                               dest = { 2, "Wetlands" } }, -- Boat to Menethil Harbor
+    { 1, "Teldrassil",          0.552, 0.949, "TransportRoutes",           "boat",      LZ["Auberdine"],                                                                                                                     dest = { 1, "Darkshore" } }, -- Boat to Auberdine
+    { 1, "Thousand Needles",    0.435, 0.409, "TransportRoutes",           "zepp",      LMD["Grom'Gol"],                                                        { AtlasCFM.Server.VANILLA_PLUS },                            dest = { 2, "Stranglethorn Vale" } }, -- Zepplin to Grom'Gol
+    { 1, "Desolace",            0.22,  0.74,  "TransportRoutes",           "boat",      LZ["Moonhoof Village"],                                                 { AtlasCFM.Server.TURTLE },                                  dest = { 1, "Moonwhisper Coast" } }, -- Boat to Moonhoof Village (1.18.1)
+    { 1, "Moonwhisper Coast",   0.69,  0.39,  "TransportRoutes",           "boat",      LZ["Shadowprey Village"],                                               { AtlasCFM.Server.TURTLE },                                  dest = { 1, "Desolace" } }, -- Boat to Shadowprey Village (1.18.1)
+    { 1, "Feralas",             0.31,  0.40,  "TransportRoutes",           "boat",      LZ["Auberdine"],                                                        { AtlasCFM.Server.VANILLA_PLUS },                            dest = { 1, "Darkshore" } }, -- Boat to Auberdine
+    { 1, "Darkshore",           0.31,  0.41,  "TransportRoutes",           "boat",      LZ["Feralas"],                                                          { AtlasCFM.Server.VANILLA_PLUS },                            dest = { 1, "Feralas" } }, -- Boat to Feralas
+    { 1, "Tanaris",             0.68,  0.23,  "TransportRoutes",           "boat",      LZ["Ratchet"] .. ", " .. LZ["Booty Bay"],                               { AtlasCFM.Server.VANILLA_PLUS },                            dest = { { 1, "The Barrens" }, { 2, "Stranglethorn Vale" } } }, -- Boat to Ratchet, Booty Bay
+    -- Eastern Kingdoms Dungeons
+    { 2, "Searing Gorge",       0.375, 0.83,  "BlackrockDepths",           "dungeon",   "52-60" },
+    { 2, "Burning Steppes",     0.33,  0.3,   "BlackrockDepths",           "dungeon",   "52-60" },
+    { 2, "Westfall",            0.423, 0.726, "TheDeadmines",              "dungeon",   "17-24" },
+    { 2, "Gilneas",             0.30,  0.27,  "GilneasCity",               "dungeon",   "43-49",                                                                { AtlasCFM.Server.TURTLE1 } }, --1.17.2
+    { 2, "Dun Morogh",          0.23,  0.38,  "Gnomeregan",                "dungeon",   "29-38" },
+    { 2, "Dun Morogh",          0.66,  0.4,   "FrostmaneHollow",           "dungeon",   "13-20",                                                                { AtlasCFM.Server.TURTLE } }, --1.18.1
+    { 2, "Searing Gorge",       0.95,  0.53,  "HateforgeQuarry",           "dungeon",   "52-60",                                                                { AtlasCFM.Server.TURTLE1 } }, --1.17.2
+    { 2, "Deadwind Pass",       0.45,  0.75,  "KarazhanCrypt",             "dungeon",   "58-60",                                                                { AtlasCFM.Server.TURTLE1 } }, --1.17.2
+    { 2, "Burning Steppes",     0.3,   0.3,   "BlackrockSpireLower",       "dungeon",   "55-60" },
+    { 2, "Searing Gorge",       0.364, 0.879, "BlackrockSpireLower",       "dungeon",   "55-60" },
+    { 2, "Tirisfal Glades",     0.85,  0.29,  "ScarletMonasteryGraveyard", "dungeon",   "26-36" },
+    { 2, "Tirisfal Glades",     0.87,  0.295, "ScarletMonasteryCathedral", "dungeon",   "35-45" },
+    { 2, "Tirisfal Glades",     0.87,  0.33,  "ScarletMonasteryArmory",    "dungeon",   "32-42" },
+    { 2, "Tirisfal Glades",     0.85,  0.34,  "ScarletMonasteryLibrary",   "dungeon",   "29-39" },
+    { 2, "Western Plaguelands", 0.69,  0.74,  "Scholomance",               "dungeon",   "58-60" },
+    { 2, "Silverpine Forest",   0.44,  0.67,  "ShadowfangKeep",            "dungeon",   "22-30" },
+    { 2, "Stormwind City",      0.51,  0.675, "TheStockade",               "dungeon",   "24-31",                                                                { AtlasCFM.Server.TURTLE1 } }, --1.17.2
+    { 2, "Stormwind City",      0.42,  0.58,  "TheStockade",               "dungeon",   "24-31",                                                                { AtlasCFM.Server.CLASSIC, AtlasCFM.Server.VANILLA_PLUS } },
+    { 2, "Stormwind City",      0.63,  0.58,  "StormwindVault",            "dungeon",   "60",                                                                   { AtlasCFM.Server.TURTLE1 } }, --1.17.2
+    { 2, "Elwynn Forest",       0.29,  0.61,  "StormwindVault",            "dungeon",   "60",                                                                   { AtlasCFM.Server.TURTLE1 } }, --1.17.2 Horde Entrance
+    { 2, "Eastern Plaguelands", 0.31,  0.14,  "Stratholme",                "dungeon",   "58-60" },
+    { 2, "Eastern Plaguelands", 0.47,  0.24,  "Stratholme",                "dungeon",   "58-60" .. " (" .. LMD["Back"] .. ")" }, -- Back Gate
+    { 2, "Swamp of Sorrows",    0.701, 0.55,  "TheSunkenTemple",           "dungeon",   "50-60" },
+    { 2, "Badlands",            0.429, 0.130, "Uldaman",                   "dungeon",   "41-51" },
+    { 2, "Badlands",            0.657, 0.438, "Uldaman",                   "dungeon",   "41-51" .. " (" .. LMD["Back"] .. ")" }, -- Back Entrance
+    { 2, "Burning Steppes",     0.32,  0.37,  "BlackrockSpireUpper",       "dungeon",   "55-60" },
+    { 2, "Searing Gorge",       0.39,  0.87,  "BlackrockSpireUpper",       "dungeon",   "55-60" },
+    { 2, "Wetlands",            0.67,  0.634, "DragonmawRetreat",          "dungeon",   "27-33",                                                                { AtlasCFM.Server.TURTLE } }, --1.18
+    { 2, "Balor",               0.57,  0.598, "StormwroughtRuins",         "dungeon",   "35-41",                                                                { AtlasCFM.Server.TURTLE } }, --1.18
+    { 2, "Balor",               0.561, 0.846, "StormwroughtRuins",         "dungeon",   "35-41" .. " (" .. LMD["Back"] .. ")",                                  { AtlasCFM.Server.TURTLE } }, -- Back Entrance 1.18
+    -- Eastern Kingdoms Raids
+    { 2, "Searing Gorge",       0.33,  0.83,  "BlackwingLair",             "raid",      "60" },
+    { 2, "Burning Steppes",     0.27,  0.3,   "BlackwingLair",             "raid",      "60" },
+    { 2, "Deadwind Pass",       0.46,  0.70,  "LowerKarazhan",             "raid",      "58-60",                                                                { AtlasCFM.Server.TURTLE1 } }, --1.17.2
+    { 2, "Searing Gorge",       0.336, 0.879, "MoltenCore",                "raid",      "60" },
+    { 2, "Burning Steppes",     0.275, 0.37,  "MoltenCore",                "raid",      "60" },
+    { 2, "Eastern Plaguelands", 0.40,  0.28,  "Naxxramas",                 "raid",      "60" },
+    { 2, "Deadwind Pass",       0.442, 0.719, "TowerofKarazhan",           "raid",      "60",                                                                   { AtlasCFM.Server.TURTLE } }, --1.18.1
+    { 2, "Stranglethorn Vale",  0.53,  0.172, "ZulGurub",                  "raid",      "60" },
+    -- Eastern Kingdoms World Bosses
+    { 2, "Deadwind Pass",       0.471, 0.751, "Reaver",                    "worldboss", "60",                                                                   { AtlasCFM.Server.TURTLE1 } }, --1.17.2
+    { 2, "Duskwood",            0.465, 0.357, "FourDragons",               "worldboss", "60" .. " (" .. LB["Lethon"] .. ")" },                                        -- Emerald Dragon - Lethon
+    { 2, "The Hinterlands",     0.632, 0.217, "FourDragons",               "worldboss", "60" .. " (" .. LB["Emeriss"] .. ")" },                                       -- Emerald Dragon - Emeriss
+    { 2, "Blasted Lands",       0.36,  0.753, "LordKazzak",                "worldboss", "60" },
+    { 2, "Blasted Lands",       0.53,  0.4,   "TeremustheDevourer",        "worldboss", "60",                                                                   { AtlasCFM.Server.VANILLA_PLUS } },
+    { 2, "Eastern Plaguelands", 0.082, 0.38,  "Nerubian",                  "worldboss", "60",                                                                   { AtlasCFM.Server.TURTLE1 } }, --1.17.2
+    -- Eastern Kingdoms Transport
+    { 2, "Stormwind City",      0.694, 0.294, "TransportRoutes",           "tram",      LZ["Ironforge"],                                                        { AtlasCFM.Server.TURTLE1 },                                 dest = { 2, "Ironforge" } }, -- Tram to Ironforge (Turtle)
+    { 2, "Stormwind City",      0.61,  0.12,  "TransportRoutes",           "tram",      LZ["Ironforge"],                                                        { AtlasCFM.Server.CLASSIC, AtlasCFM.Server.VANILLA_PLUS },   dest = { 2, "Ironforge" } }, -- Tram to Ironforge
+    { 2, "Ironforge",           0.762, 0.511, "TransportRoutes",           "tram",      LZ["Stormwind"],                                                                                                                     dest = { 2, "Stormwind City" } }, -- Tram to Stormwind
+    { 2, "The Hinterlands",     0.812, 0.794, "TransportRoutes",           "boat",      LMD["Sparkwater Port"],                                                 { AtlasCFM.Server.TURTLE1 },                                 dest = { 1, "Durotar" } }, -- Boat to Sparkwater Port (return pin sits on the Durotar map)
+    { 2, "Wetlands",            0.068, 0.613, "TransportRoutes",           "boat",      LZ["Theramore Isle"],                                                                                                                dest = { 1, "Dustwallow Marsh" } }, -- Boat to Theramore Isle
+    { 2, "Wetlands",            0.057, 0.570, "TransportRoutes",           "boat",      LZ["Auberdine"],                                                        { AtlasCFM.Server.CLASSIC, AtlasCFM.Server.VANILLA_PLUS },   dest = { 1, "Darkshore" } }, -- Boat to Auberdine
+    { 2, "Stormwind City",      0.218, 0.563, "TransportRoutes",           "boat",      LZ["Auberdine"],                                                        { AtlasCFM.Server.TURTLE1 },                                 dest = { 1, "Darkshore" } }, -- Boat to Auberdine
+    { 2, "Stormwind City",      0.22,  0.413, "TransportRoutes",           "boat",      LZ["Balor"],                                                            { AtlasCFM.Server.TURTLE },                                  dest = { 2, "Balor" } }, -- Fly to Balor
+    { 2, "Stranglethorn Vale",  0.257, 0.73,  "TransportRoutes",           "boat",      LZ["Ratchet"],                                                          { AtlasCFM.Server.TURTLE1, AtlasCFM.Server.CLASSIC },        dest = { 1, "The Barrens" } }, -- Boat to Ratchet
+    { 2, "Stranglethorn Vale",  0.257, 0.73,  "TransportRoutes",           "boat",      LZ["Tanaris"] .. ", " .. LZ["Ratchet"],                                 { AtlasCFM.Server.VANILLA_PLUS },                            dest = { { 1, "Tanaris" }, { 1, "The Barrens" } } }, -- Boat to Tanaris, Ratchet
+    { 2, "Tirisfal Glades",     0.61,  0.58,  "TransportRoutes",           "zepp",      LZ["Orgrimmar"],                                                                                                                     dest = { 1, "Durotar" } }, -- Zeppelins to Orgrimmar
+    { 2, "Tirisfal Glades",     0.63,  0.58,  "TransportRoutes",           "zepp",      LZ["Grom'Gol"],                                                                                                                      dest = { 2, "Stranglethorn Vale" } }, -- Zeppelins to Grom'Gol
+    { 2, "Stranglethorn Vale",  0.31,  0.265, "TransportRoutes",           "zepp",      LZ["Undercity"],                                                                                                                     dest = { 2, "Tirisfal Glades" } }, -- Zeppelins to UC
+    { 2, "Stranglethorn Vale",  0.31,  0.29,  "TransportRoutes",           "zepp",      LZ["Orgrimmar"],                                                        { AtlasCFM.Server.TURTLE1, AtlasCFM.Server.CLASSIC },        dest = { 1, "Durotar" } }, -- Zeppelins to Orgrimmar
+    { 2, "Stranglethorn Vale",  0.31,  0.29,  "TransportRoutes",           "zepp",      LZ["Thousand Needles"],                                                 { AtlasCFM.Server.VANILLA_PLUS },                            dest = { 1, "Thousand Needles" } }, -- Zeppelins to Thousand Needles
+    { 2, "Badlands",            0.050, 0.470, "TransportRoutes",           "zepp",      LZ["Orgrimmar"],                                                        { AtlasCFM.Server.TURTLE1, AtlasCFM.Server.VANILLA_PLUS },   dest = { 1, "Durotar" } }, -- Zeppelin to Orgrimmar
+    { 2, "Alah'Thalas",         0.531, 0.047, "TransportRoutes",           "boat",      LZ["Auberdine"],                                                        { AtlasCFM.Server.TURTLE1 },                                 dest = { 1, "Darkshore" } }, -- Boat to Auberdine (1.17.2)
+    -- PVP Entrances
+    { 1, "Ashenvale",           0.61,  0.83,  "BGWarsongGulch",            "dungeon",   "1-60" .. " (" .. L["Battlegrounds"] .. ")" .. " - " .. LF["Alliance"] },     -- Warsong Gulch (Alliance)
+    { 1, "The Barrens",         0.47,  0.08,  "BGWarsongGulch",            "dungeon",   "1-60" .. " (" .. L["Battlegrounds"] .. ")" .. " - " .. LF["Horde"] },        -- Warsong Gulch (Horde)
+    { 2, "Arathi Highlands",    0.45,  0.46,  "BGArathiBasin",             "dungeon",   "20-60" .. " (" .. L["Battlegrounds"] .. ")" .. " - " .. LF["Alliance"] },    -- Arathi Basin (Alliance)
+    { 2, "Arathi Highlands",    0.73,  0.29,  "BGArathiBasin",             "dungeon",   "20-60" .. " (" .. L["Battlegrounds"] .. ")" .. " - " .. LF["Horde"] },       -- Arathi Basin (Horde)
+    { 2, "Alterac Mountains",   0.39,  0.81,  "BGAlteracValleyNorth",      "dungeon",   "51-60" .. " (" .. L["Battlegrounds"] .. ")" .. " - " .. LF["Alliance"] },    -- Alterac Valley (Alliance)
+    { 2, "Alterac Mountains",   0.638, 0.59,  "BGAlteracValleySouth",      "dungeon",   "51-60" .. " (" .. L["Battlegrounds"] .. ")" .. " - " .. LF["Horde"] },       -- Alterac Valley (Horde)
+}
+
+local function GetLocalizedZoneName(enName)
+    return LZ[enName] or LMD[enName] or LF[enName] or enName
+end
+
+--- Normalizes a marker 'dest' field into a list of { continent, EN zone name } pairs
+local function GetDestinationList(dest)
+    if not dest then
+        return nil
+    end
+    if type(dest[1]) == "table" then
+        return dest
+    end
+    return { dest }
+end
+
+-- Remembers which stop of a multi-stop route is served next, keyed by the route's dest table
+local destStep = {}
+
+--- Returns the destination the next left-click on this route leads to
+--- @param dest table The marker's 'dest' field
+--- @return table|nil The { continent, EN zone name } pair, or nil if the route has no destination
+local function GetNextDestination(dest)
+    local list = GetDestinationList(dest)
+    if not list then
+        return nil
+    end
+    local step = destStep[dest] or 1
+    if step > table.getn(list) then
+        step = 1
+    end
+    return list[step]
+end
+
+--- Moves the World Map to the route's next destination, then advances multi-stop routes
+--- @param dest table The marker's 'dest' field
+local function TravelToDestination(dest)
+    local target = GetNextDestination(dest)
+    if not target then
+        return
+    end
+
+    local continent, enName = target[1], target[2]
+    local list = GetDestinationList(dest)
+    local step = (destStep[dest] or 1) + 1
+    if step > table.getn(list) then
+        step = 1
+    end
+    destStep[dest] = step
+
+    SetMapZoom(continent, AtlasCFM.MapMarkers.ResolveZoneID(continent, enName))
+end
+
+local function OpenAtlasPage(key)
+    if not key or not AtlasCFM.InstanceData[key] then
+        PrintA("Key not found: " .. tostring(key))
+        return
+    end
+
+    -- Find the key in DropDowns
+    for typeIndex, zoneList in pairs(AtlasCFM.DropDowns) do
+        for zoneIndex, zoneKey in pairs(zoneList) do
+            if zoneKey == key then
+                AtlasCFMOptions.AtlasType = typeIndex
+                AtlasCFMOptions.AtlasZone = zoneIndex
+
+                -- Prevent OnShow from restoring last opened state
+                AtlasCFM.SkipRestore = true
+
+                AtlasCFMFrame:Show()
+                AtlasCFM.UpdateDropdownLabels()
+                AtlasCFM.Refresh()
+
+                -- Close World Map if open
+                if WorldMapFrame:IsShown() then
+                    HideUIPanel(WorldMapFrame)
+                end
+                return
+            end
+        end
+    end
+    PrintA("Key not found in DropDowns: " .. tostring(key))
+end
+
+local function ResetPinState(pin)
+    if not pin then
+        return
+    end
+    pin:SetScript("OnUpdate", nil)
+    local baseSize = pin.baseSize
+    if baseSize then
+        pin:SetWidth(baseSize)
+        pin:SetHeight(baseSize)
+    end
+    local parent = pin:GetParent()
+    if parent then
+        pin:SetFrameLevel(parent:GetFrameLevel() + 3)
+    end
+end
+
+local function ClearMarkers()
+    for _, pin in pairs(markers) do
+        ResetPinState(pin)
+        pin:Hide()
+        tinsert(pinPool, pin)
+    end
+    markers = {}
+end
+
+local function CreateMapPin(parent, x, y, size, texture, key, tooltipInfo, dest)
+    local pin = tremove(pinPool)
+    if not pin then
+        pin = CreateFrame("Button", nil, parent)
+        pin.texture = pin:CreateTexture(nil, "OVERLAY")
+        pin.texture:SetAllPoints()
+    end
+
+    -- Transport pins use the right button for the Atlas page, everything else is left click only
+    if dest then
+        pin:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    else
+        pin:RegisterForClicks("LeftButtonUp")
+    end
+
+    pin:SetParent(parent)
+    pin.baseSize = size
+    pin:SetWidth(size)
+    pin:SetHeight(size)
+    pin:ClearAllPoints()
+    pin:SetPoint("CENTER", parent, "TOPLEFT", x, -y)
+    pin.texture:SetTexture(texture)
+    pin:SetFrameLevel(parent:GetFrameLevel() + 3)
+    pin:Show()
+
+    pin:SetScript("OnEnter", function()
+        -- Hover effect
+        pin:SetWidth(size * 1.3)
+        pin:SetHeight(size * 1.3)
+        pin:SetFrameLevel(pin:GetParent():GetFrameLevel() + 5)
+        WorldMapTooltip:SetOwner(pin, "ANCHOR_RIGHT")
+
+        local title = key
+        if AtlasCFM.InstanceData[key] then
+            title = AtlasCFM.InstanceData[key].Name
+        end
+
+        -- Special handling for transport to show generic name
+        if key == "TransportRoutes" then
+            title = L["Transport Routes"]
+        end
+
+        WorldMapTooltip:SetText(title, 1, 1, 1)
+
+        if tooltipInfo then
+            if key == "TransportRoutes" then
+                WorldMapTooltip:AddLine(tooltipInfo, 1, 1, 0)
+            else
+                WorldMapTooltip:AddLine(L["Level"] .. ": " .. tooltipInfo, 1, 1, 0)
+            end
+        end
+
+        local nextDest = GetNextDestination(dest)
+        if nextDest then
+            WorldMapTooltip:AddLine(L["Left-click"] .. ": " .. GetLocalizedZoneName(nextDest[2]), 0, 1, 0)
+            WorldMapTooltip:AddLine(L["Right-click"] .. ": " .. L["Transport Routes"], 0, 1, 0)
+        end
+        WorldMapTooltip:Show()
+    end)
+
+    pin:SetScript("OnLeave", function()
+        ResetPinState(pin)
+        WorldMapTooltip:Hide()
+    end)
+
+    pin:SetScript("OnClick", function()
+        ResetPinState(pin)
+        WorldMapTooltip:Hide()
+
+        -- Transport pins: left click follows the route, right click opens the Atlas page
+        if dest and arg1 ~= "RightButton" then
+            TravelToDestination(dest)
+        else
+            OpenAtlasPage(key)
+        end
+    end)
+
+    return pin
+end
+
+--- Finds marker data by English zone name or key
+--- @param searchKey string The Atlas zone key or English zone name to search for
+--- @return table|nil The marker data {continent, zoneName, x, y, key, type, info} or nil
+function AtlasCFM.MapMarkers.FindMarkerByZoneID(searchKey)
+    for _, data in pairs(MapPoints) do
+        local _, enName, _, _, key, _, _ = unpack(data)
+        if key == searchKey or enName == searchKey then
+            return data
+        end
+    end
+    return nil
+end
+
+--- Resolves a locale-dependent zone ID from an English zone name
+--- @param continent number The continent ID
+--- @param enName string The English zone name
+--- @return number The resolved zone ID for the current locale (index in GetMapZones)
+function AtlasCFM.MapMarkers.ResolveZoneID(continent, enName)
+    local localizedName = GetLocalizedZoneName(enName)
+    local zones = { GetMapZones(continent) }
+    for i, name in ipairs(zones) do
+        if name == localizedName or name == enName then
+            return i
+        end
+    end
+    return 0 -- Fallback to continent view
+end
+
+local function BuildZoneIndex()
+    for _, data in ipairs(MapPoints) do
+        local continent, enName = data[1], data[2]
+        local localizedName = GetLocalizedZoneName(enName)
+
+        if not ZoneMapPoints[continent] then ZoneMapPoints[continent] = {} end
+        if not ZoneMapPoints[continent][localizedName] then ZoneMapPoints[continent][localizedName] = {} end
+        table.insert(ZoneMapPoints[continent][localizedName], data)
+    end
+end
+
+function AtlasCFM.MapMarkers.UpdateMarkers()
+    if not AtlasCFMOptions.ShowMapMarkers then
+        ClearMarkers()
+        return
+    end
+
+    if not WorldMapFrame:IsShown() then
+        ClearMarkers()
+        return
+    end
+
+    -- Lazy initialization of the index
+    if not next(ZoneMapPoints) then
+        BuildZoneIndex()
+    end
+
+    local currentContinent = GetCurrentMapContinent()
+    local currentZone = GetCurrentMapZone()
+    local zones = { GetMapZones(currentContinent) }
+    local currentZoneName = zones[currentZone]
+
+    -- Hide existing markers
+    ClearMarkers()
+
+    -- Only process markers for the current zone if any exist
+    if ZoneMapPoints[currentContinent] and ZoneMapPoints[currentContinent][currentZoneName] then
+        local worldMap = WorldMapDetailFrame
+        local mapWidth, mapHeight = worldMap:GetWidth(), worldMap:GetHeight()
+
+        for _, data in ipairs(ZoneMapPoints[currentContinent][currentZoneName]) do
+            local _, _, x, y, key, kind, info, servers = unpack(data)
+
+            -- Server visibility check
+            if servers and not AtlasCFM.Server.IsVisible({ servers = servers }) then
+                -- Skip this marker
+            else
+                local size = 30
+                local texture = TEXTURE_MAP[kind] or TEXTURE_DUNGEON
+
+                if kind == "zepp" or kind == "boat" then
+                    size = 26
+                elseif kind == "tram" then
+                    size = 24
+                end
+
+                local px, py = x * mapWidth, y * mapHeight
+                local pin = CreateMapPin(worldMap, px, py, size, texture, key, info, data.dest)
+
+                tinsert(markers, pin)
+            end
+        end
+    end
+end
+
+-- Initialize
+local frame = CreateFrame("Frame")
+frame:RegisterEvent("WORLD_MAP_UPDATE")
+frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+
+frame:SetScript("OnEvent", function()
+    if event == "PLAYER_ENTERING_WORLD" then
+        if AtlasCFMOptions.ShowMapMarkers == nil then
+            AtlasCFMOptions.ShowMapMarkers = true
+        end
+        -- Pre-build index on login
+        if not next(ZoneMapPoints) then
+            BuildZoneIndex()
+        end
+    end
+    AtlasCFM.MapMarkers.UpdateMarkers()
+end)
+
+-- Secure hook for WorldMapFrame.Hide if possible, or override
+local oldWorldMapFrameHide = WorldMapFrame.Hide
+WorldMapFrame.Hide = function(self)
+    ClearMarkers()
+    if oldWorldMapFrameHide then
+        oldWorldMapFrameHide(self)
+    end
+end

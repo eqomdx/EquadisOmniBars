@@ -1,0 +1,902 @@
+---
+-- Utils.lua - Common string and link utilities for Atlas-CFM Loot
+-- Provides helper functions for text formatting and WoW item link parsing
+-- Features:
+-- 1) Strip WoW formatting codes from text
+-- 2) Truncate text safely with ellipsis
+-- 3) Extract item ID from WoW item link
+-- @compatible World of Warcraft 1.12
+
+local _G = getfenv()
+AtlasCFM = _G.AtlasCFM
+AtlasCFM.LootUtils = AtlasCFM.LootUtils or {}
+local L = AtlasCFM.Localization.UI
+local RED = AtlasCFM.Colors.RED
+local WHITE = AtlasCFM.Colors.WHITE
+
+-- Timer system
+AtlasCFM.Timer = {}
+local activeTimers = {}
+local timerFrame = nil
+
+local function OnTimerUpdate()
+    local now = GetTime()
+    local count = table.getn(activeTimers)
+    if count == 0 then
+        timerFrame:Hide()
+        return
+    end
+
+    local keptTimers = {}
+    local expiredCallbacks = {}
+
+    -- Single pass to separate expired and active timers (O(N))
+    for i = 1, count do
+        local timer = activeTimers[i]
+        if now >= timer.time then
+            if timer.callback then
+                table.insert(expiredCallbacks, timer.callback)
+            end
+        else
+            table.insert(keptTimers, timer)
+        end
+    end
+
+    -- Update active timers with remaining ones
+    activeTimers = keptTimers
+
+    -- Execute callbacks after updating state to prevent re-entrancy issues
+    for i = 1, table.getn(expiredCallbacks) do
+        pcall(expiredCallbacks[i])
+    end
+
+    if table.getn(activeTimers) == 0 then
+        timerFrame:Hide()
+    end
+end
+
+---
+-- Start a timer with specified delay and callback function
+-- @function AtlasCFM.Timer.Start
+-- @param delaySeconds number - Delay in seconds before executing callback
+-- @param callbackFunc function - Function to execute after delay
+-- @usage AtlasCFM.Timer.Start(2.0, function() PrintA("Timer finished") end)
+---
+function AtlasCFM.Timer.Start(delaySeconds, callbackFunc)
+    if not timerFrame then
+        timerFrame = CreateFrame("Frame", "AtlasCFMTimerFrame")
+        timerFrame:SetScript("OnUpdate", OnTimerUpdate)
+    end
+
+    table.insert(activeTimers, {
+        time = GetTime() + delaySeconds,
+        callback = callbackFunc
+    })
+    timerFrame:Show()
+end
+
+-- Compatibility wrapper for modules expecting global StartTimer
+function StartTimer(delay, callback)
+    AtlasCFM.Timer.Start(delay, callback)
+end
+
+---
+-- @module AtlasCFM.LootUtils
+-- @description Common string and link utilities for Atlas-CFM Loot
+---
+function AtlasCFM.LootUtils.GetChatLink(id)
+    local itemName, itemLink, itemQuality = GetItemInfo(tonumber(id))
+    if not itemName or not itemLink or not itemQuality then
+        -- If item is not cached, return simple link
+        return "[Item:" .. tostring(id) .. "]"
+    end
+
+    local _, _, _, colorCode = GetItemQualityColor(itemQuality)
+    local colorHex = string.sub(colorCode, 2)
+    return "\124" .. colorHex .. "\124H" .. itemLink .. "\124h[" .. itemName .. "]\124h\124r"
+end
+
+---
+--- Removes all WoW formatting codes from text
+--- Strips color codes, links, icons, and other formatting elements
+--- @param text string Text to strip formatting from
+--- @return string Clean text without formatting codes
+--- @usage local clean = AtlasCFMLoot_StripFormatting("|cffff0000Red Text|r")
+---
+function AtlasCFM.LootUtils.StripFormatting(text)
+    if not text then return "" end
+    -- Remove color codes |cffRRGGBB and closing |r
+    text = string.gsub(text, "|c%x%x%x%x%x%x%x%x", "")
+    text = string.gsub(text, "|r", "")
+    -- Remove links |Hlink|htext|h but keep text
+    text = string.gsub(text, "|H(.-)|h(.-)|h", "%2")
+    -- Remove icons |Tpath|t
+    text = string.gsub(text, "|T.-|t", "")
+    -- Remove line breaks |n
+    text = string.gsub(text, "|n", "")
+    -- Remove any other codes starting with |
+    text = string.gsub(text, "|%w+", "")
+    text = string.gsub(text, "|%d+", "")
+    -- Remove remaining single |
+    text = string.gsub(text, "|", "")
+    -- Remove all types of brackets and their content
+    text = string.gsub(text, "%(.-%)", "") -- ()
+    text = string.gsub(text, "%[.-%]", "") -- []
+    text = string.gsub(text, "%{.-%}", "") -- {}
+    text = string.gsub(text, "%<.-%>", "") -- <>
+    return text
+end
+
+---
+--- Truncates text to specified length with ellipsis
+--- Strips formatting before measuring length and adds "..." if needed
+--- @param text string Text to truncate
+--- @param maxLength number Maximum allowed length
+--- @return string Truncated text with ellipsis if needed
+--- @usage local short = AtlasCFM.LootUtils.TruncateText("Very long text", 10)
+---
+function AtlasCFM.LootUtils.TruncateText(text, maxLength)
+    local stripped_text = AtlasCFM.LootUtils.StripFormatting(text)
+    local current_len = string.len(stripped_text)
+    if current_len > maxLength then
+        if maxLength <= 3 then
+            return "..."
+        end
+        local truncated_stripped_text = string.sub(stripped_text, 1, maxLength - 3) .. "..."
+        return truncated_stripped_text
+    else
+        return stripped_text
+    end
+end
+
+---
+--- Extracts numeric item ID from a WoW item link
+--- Supports links like |cff..|Hitem:12345:...|h[Name]|h|r
+--- @param itemlink string WoW item hyperlink
+--- @return number|nil Numeric item ID or nil if not found
+--- @usage local id = AtlasCFM.LootUtils.IdFromLink(itemLink)
+---
+function AtlasCFM.LootUtils.IdFromLink(itemlink)
+    if itemlink then
+        local _, _, id = string.find(itemlink, "|Hitem:([^:]+)%:")
+        return tonumber(id)
+    end
+    return nil
+end
+
+---
+--- Splits a string by delimiter with optional limits
+--- Custom string splitting with control over result count
+--- WoW 1.12 compatible using string.gfind
+--- @param delim string Delimiter to split by
+--- @param str string String to split
+--- @param maxNb number|nil Maximum number of splits (0 for unlimited)
+--- @param onlyLast boolean|nil If true, return only the last part
+--- @return any Returns last part if onlyLast, otherwise returns first two parts for convenience
+--- @usage local a,b = AtlasCFM.LootUtils.Strsplit("|", "a|b|c")
+---
+function AtlasCFM.LootUtils.Strsplit(delim, str, maxNb, onlyLast)
+    if not str or not delim then return { str } end
+    if string.find(str, delim) == nil then
+        return { str }
+    end
+    if maxNb == nil or maxNb < 1 then
+        maxNb = 0
+    end
+    local result = {}
+    local pat = "(.-)" .. delim .. "()"
+    local nb = 0
+    local lastPos
+    for part, pos in string.gfind(str, pat) do
+        nb = nb + 1
+        result[nb] = part
+        lastPos = pos
+        if nb == maxNb then break end
+    end
+    if nb ~= maxNb then
+        result[nb + 1] = string.sub(str, lastPos)
+    end
+    if onlyLast then
+        return result[nb + 1]
+    else
+        return result[1], result[2]
+    end
+end
+
+---
+--- Checks player bags for specific items and quantities
+--- Returns colored item name based on availability in bags
+--- @param id number|string Item ID to search for
+--- @param qty number Quantity required (default: 1)
+--- @return string Colored item name (WHITE if found, RED if missing)
+--- @usage local result = AtlasCFM.LootUtils.CheckBagsForItems(12345, 5)
+---
+function AtlasCFM.LootUtils.CheckBagsForItems(id, qty)
+    if not id then return end
+    if not qty then qty = 1 end
+    local itemsfound = 0
+    if not GetItemInfo then return (RED or "") .. (L and L["Unknown"] or "Unknown") end
+
+    local itemName = GetItemInfo(id)
+    if not itemName then itemName = L["Unknown"] end
+
+    for i = 0, NUM_BAG_FRAMES do
+        for j = 1, GetContainerNumSlots(i) do
+            local itemLink = GetContainerItemLink(i, j)
+            if itemLink and AtlasCFM.LootUtils.IdFromLink(itemLink) == tonumber(id) then
+                local _, stackCount = GetContainerItemInfo(i, j)
+                itemsfound = itemsfound + (stackCount or 0)
+                if itemsfound >= qty then
+                    if qty == 1 then
+                        return (WHITE or "") .. itemName
+                    else
+                        return (WHITE or "") .. itemName .. " (" .. qty .. ")"
+                    end
+                end
+            end
+        end
+    end
+
+    if qty == 1 then
+        return (RED or "") .. itemName
+    else
+        return (RED or "") .. itemName .. " (" .. qty .. ")"
+    end
+end
+
+--- Iterates over all items in AtlasCFMLoot_Data and InstanceData
+--- @param callback function Function to call for each item (arg: itemID, pageKey). Return non-nil to stop.
+--- @return any The value returned by callback that stopped iteration, or nil.
+--- @usage AtlasCFM.LootUtils.IterateAllLootItems(function(id, key) ... end)
+---
+--- Iterates over all items in AtlasCFMLoot_Data and InstanceData
+--- @param callback function Function to call for each item (arg: itemID, pageKey, itemData). Return non-nil to stop.
+--- @return any The value returned by callback that stopped iteration, or nil.
+--- @usage AtlasCFM.LootUtils.IterateAllLootItems(function(id, key, data) ... end)
+---
+function AtlasCFM.LootUtils.IterateAllLootItems(callback)
+    if not callback then return end
+
+    -- Helper to iterate a single list of items
+    local function IterateList(list, key, isInsideContainer)
+        if type(list) ~= "table" then return end
+        local m = table.getn(list)
+        for i = 1, m do
+            local el = list[i]
+            if type(el) == "table" then
+                -- Check standard id
+                if el.id then
+                    local res = callback(el.id, key, isInsideContainer and { id = el.id, isContainer = true } or el)
+                    if res then return res end
+                end
+                -- Check legacy/tuple format id
+                if el[1] and type(el[1]) == "number" then
+                    local res = callback(el[1], key, isInsideContainer and { id = el[1], isContainer = true } or el)
+                    if res then return res end
+                end
+
+                -- Recursive check for containers
+                if el.container and type(el.container) == "table" then
+                    local res = IterateList(el.container, key, true)
+                    if res then return res end
+                end
+            elseif type(el) == "number" then
+                local res = callback(el, key, isInsideContainer and { id = el, isContainer = true } or el)
+                if res then return res end
+            end
+        end
+    end
+
+    -- 1. Iterate InstanceData
+    if AtlasCFM.InstanceData then
+        for _, instanceData in pairs(AtlasCFM.InstanceData) do
+            -- Bosses
+            if instanceData.Bosses then
+                for _, boss in ipairs(instanceData.Bosses) do
+                    -- Only iterate if items is a TABLE (unique to this boss), not a string reference
+                    local items = boss.items or boss.loot
+                    if type(items) == "table" and boss.id then
+                        local res = IterateList(items, boss.id)
+                        if res then return res end
+                    end
+                end
+            end
+            -- Reputation
+            if instanceData.Reputation then
+                for _, rep in pairs(instanceData.Reputation) do
+                    local items = rep.items or rep.loot
+                    if type(items) == "table" then
+                        -- Reputation usually doesn't have a unique ID like bosses,
+                        -- but we can use "Reputation" or derived name if needed.
+                        -- However, IterateList requires a 'key'.
+                        -- Often these tables are referenced by string key in AtlasCFMLoot_Data.
+                        -- If 'items' is a table here, it means it's an inline table?
+                        -- Typically Reputation items are string keys.
+                        -- If it IS a table, we should process it.
+                        -- We'll use instance name or a placeholder if no specific key.
+                        local res = IterateList(items, rep.name or "Reputation")
+                        if res then return res end
+                    end
+                end
+            end
+            -- Keys
+            if instanceData.Keys then
+                for _, keySrc in pairs(instanceData.Keys) do
+                    local items = keySrc.items or keySrc.loot
+                    if type(items) == "table" then
+                        local res = IterateList(items, keySrc.name or "Keys")
+                        if res then return res end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. Iterate AtlasCFMLoot_Data
+    if AtlasCFMLoot_Data then
+        for key, tbl in pairs(AtlasCFMLoot_Data) do
+            local res = IterateList(tbl, key)
+            if res then return res end
+        end
+    end
+end
+
+---
+--- Resolves a loot table key to a human-readable source string (Instance - Boss)
+--- @param pageKey string The loot table key (e.g. "MCBoss1")
+--- @return string|nil Formatted source string or nil if not found
+--- @usage local source = AtlasCFM.LootUtils.GetLootTableSource("MCBoss1")
+---
+---
+--- Iterates over ONLY craft/profession tables in AtlasCFMLoot_Data (NOT InstanceData)
+--- Used for finding spell/enchant loot pages without accidentally matching dungeon boss items with same ID
+--- @param callback function Function to call for each item (arg: itemID, pageKey, itemData). Return non-nil to stop.
+--- @param primaryOnly boolean|nil If true, only iterate primary skill-level pages (Apprentice/Journeyman/Expert/Artisan)
+--- @return any The value returned by callback that stopped iteration, or nil.
+--- @usage AtlasCFM.LootUtils.IterateCraftLootItems(function(id, key, data) ... end)
+---
+function AtlasCFM.LootUtils.IterateCraftLootItems(callback, primaryOnly)
+    if not callback or not AtlasCFMLoot_Data then return end
+
+    -- Primary page patterns (skill level based, not slot-based convenience pages)
+    local PRIMARY_PATTERNS = {
+        "Apprentice", "Journeyman", "Expert", "Artisan",
+        "Table$", "Smelting", "Swordsmith", "Hammersmith",
+        "Axesmith", "Armorsmith", "Weaponsmith", "Tribal",
+        "Elemental", "Dragonscale", "Goblin", "Gnomish",
+        "JewelcraftingGemology", "JewelcraftingGoldsmithing"
+    }
+
+    local function isPrimaryPage(pageKey)
+        if not pageKey or type(pageKey) ~= "string" then return false end
+        for i = 1, table.getn(PRIMARY_PATTERNS) do
+            if string.find(pageKey, PRIMARY_PATTERNS[i]) then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Helper to iterate a single list of items
+    local function IterateList(list, key, isInsideContainer)
+        if type(list) ~= "table" then return end
+        local m = table.getn(list)
+        for i = 1, m do
+            local el = list[i]
+            if type(el) == "table" then
+                -- Process entry
+                local itemID = el.id or (type(el[1]) == "number" and el[1])
+
+                if itemID then
+                    -- If we are inside a container, or it's a craft entry (has skill)
+                    if isInsideContainer or (el.id and el.skill) then
+                        local res = callback(itemID, key, isInsideContainer and { id = itemID, isContainer = true } or el)
+                        if res then return res end
+                    end
+                end
+
+                -- Recursive check for containers
+                if el.container and type(el.container) == "table" then
+                    local res = IterateList(el.container, key, true)
+                    if res then return res end
+                end
+            elseif type(el) == "number" then
+                if isInsideContainer then
+                    local res = callback(el, key, { id = el, isContainer = true })
+                    if res then return res end
+                end
+            end
+        end
+    end
+
+    -- Only iterate AtlasCFMLoot_Data (craft tables), NOT InstanceData
+    for key, tbl in pairs(AtlasCFMLoot_Data) do
+        -- If primaryOnly flag is set, skip non-primary pages
+        if not primaryOnly or isPrimaryPage(key) then
+            local res = IterateList(tbl, key)
+            if res then return res end
+        end
+    end
+end
+
+---
+--- Finds the first craft/profession loot page containing a specific spell ID
+--- Only searches in AtlasCFMLoot_Data craft tables (not instance bosses)
+--- Prioritizes primary skill-level pages (Apprentice/Journeyman/Expert/Artisan)
+--- over secondary convenience pages (Helm/Chest/Boots/etc.)
+--- @param spellID number The spell ID to search for
+--- @return string|nil The loot page key if found, nil otherwise
+--- @usage local pageKey = AtlasCFM.LootUtils.FindCraftLootPageForSpell(2169)
+---
+function AtlasCFM.LootUtils.FindCraftLootPageForSpell(spellID)
+    if not spellID then return nil end
+    -- First, search only in primary pages (skill-level based)
+    local primaryResult = AtlasCFM.LootUtils.IterateCraftLootItems(function(id, key, itemData)
+        if id == spellID then return key end
+    end, true) -- true = primaryOnly
+
+    if primaryResult then
+        return primaryResult
+    end
+
+    -- Fallback: search all pages (including secondary/convenience pages)
+    return AtlasCFM.LootUtils.IterateCraftLootItems(function(id, key, itemData)
+        if id == spellID then return key end
+    end, false) -- false = search all
+end
+
+---
+--- Recursively checks if an item ID exists in a loot page
+--- @param data table - The loot page data (list of items/tables)
+--- @param searchID number - The item ID to search for
+--- @return boolean - True if found
+---
+function AtlasCFM.LootUtils.IsItemInLootPage(data, searchID)
+    if type(data) ~= "table" then return false end
+    -- table.getn is used for compatibility with WoW 1.12
+    for i = 1, table.getn(data) do
+        local item = data[i]
+        if type(item) == "table" then
+            if item.id == searchID or item[1] == searchID then return true end
+            if item.container and AtlasCFM.LootUtils.IsItemInLootPage(item.container, searchID) then
+                return true
+            end
+        elseif item == searchID then
+            return true
+        end
+    end
+    return false
+end
+
+---
+--- Resolves a loot table key to boss name and instance key
+--- @param pageKey string The loot table key
+--- @return string|nil, string|nil Boss Name (localized) and Instance Key
+---
+function AtlasCFM.LootUtils.GetBossAndInstanceFromPageKey(pageKey)
+    if not pageKey or not AtlasCFM or not AtlasCFM.InstanceData then return nil, nil end
+
+    -- Search in InstanceData to find which instance/boss owns this pageKey
+    for instanceKey, instanceData in pairs(AtlasCFM.InstanceData) do
+        -- Check Bosses
+        if instanceData.Bosses then
+            for _, boss in ipairs(instanceData.Bosses) do
+                local items = boss.items or boss.loot
+                if items == pageKey or boss.id == pageKey then
+                    local bossName = boss.name or boss.Name or "?"
+                    return bossName, instanceKey
+                end
+            end
+        end
+
+        -- Check Reputation
+        if instanceData.Reputation then
+            for _, rep in pairs(instanceData.Reputation) do
+                local items = rep.items or rep.loot
+                if items == pageKey then
+                    local repName = rep.name or "Reputation"
+                    return repName, instanceKey
+                end
+            end
+        end
+
+        -- Check Keys
+        if instanceData.Keys then
+            for _, keySrc in pairs(instanceData.Keys) do
+                local items = keySrc.items or keySrc.loot
+                if items == pageKey then
+                    local keyName = keySrc.name or "Keys"
+                    return keyName, instanceKey
+                end
+            end
+        end
+    end
+    return nil, nil
+end
+
+function AtlasCFM.LootUtils.GetLootTableSource(pageKey)
+    local bossName, instanceKey = AtlasCFM.LootUtils.GetBossAndInstanceFromPageKey(pageKey)
+    if bossName and instanceKey then
+        local instanceName = instanceKey
+        if AtlasCFM.InstanceData[instanceKey] and AtlasCFM.InstanceData[instanceKey].Name then
+            instanceName = AtlasCFM.InstanceData[instanceKey].Name
+        end
+        return instanceName .. " - " .. bossName
+    end
+
+    return nil
+end
+
+-- ============================================================================
+-- Shared Header/Subtitle Resolution Utilities
+-- ============================================================================
+
+-- Cache for categorizing WishList/SearchResult results
+if not AtlasCFM._CatCache then AtlasCFM._CatCache = {} end
+if not AtlasCFM._CatRev then AtlasCFM._CatRev = {} end
+
+---
+--- Invalidates the categorized list cache for a specific key
+--- @param key string - The cache key to invalidate
+--- @return nil
+--- @usage AtlasCFM.LootUtils.InvalidateCategorizedList("wishlist")
+---
+function AtlasCFM.LootUtils.InvalidateCategorizedList(key)
+    if not key then return end
+    if not AtlasCFM._CatRev then AtlasCFM._CatRev = {} end
+    AtlasCFM._CatRev[key] = (AtlasCFM._CatRev[key] or 0) + 1
+    if AtlasCFM._CatCache and AtlasCFM._CatCache[key] then
+        AtlasCFM._CatCache[key].data = nil
+        AtlasCFM._CatCache[key].rev = AtlasCFM._CatRev[key]
+    end
+end
+
+-- Global alias for backward compatibility
+function AtlasCFMLoot_InvalidateCategorizedList(key)
+    AtlasCFM.LootUtils.InvalidateCategorizedList(key)
+end
+
+---
+--- Gets instance key by name or returns key as is
+--- @param instName string - The instance name to look up
+--- @return string|nil - The instance key or nil if not found
+--- @usage local key = AtlasCFM.LootUtils.GetInstanceKeyByName("Molten Core")
+---
+function AtlasCFM.LootUtils.GetInstanceKeyByName(instName)
+    if not instName or instName == "" then return nil end
+    if AtlasCFM and AtlasCFM.InstanceData then
+        if AtlasCFM.InstanceData[instName] then return instName end
+        for key, inst in pairs(AtlasCFM.InstanceData) do
+            if inst and inst.Name == instName then
+                return key
+            end
+        end
+    end
+    return nil
+end
+
+---
+--- Returns localized profession name by loot page key (craft page)
+--- @param pageKey string - The loot page key to get profession for
+--- @return string|nil - The localized profession name if found
+--- @usage local profession = AtlasCFM.LootUtils.GetProfessionByLootPageKey("Alchemy1")
+---
+function AtlasCFM.LootUtils.GetProfessionByLootPageKey(pageKey)
+    if not pageKey or type(pageKey) ~= "string" then return nil end
+    if not AtlasCFM or not AtlasCFM.MenuData then return nil end
+
+    local LS = AtlasCFM.Localization.Spells
+    local MenuData = AtlasCFM.MenuData
+
+    -- Mapping menu table keys to localized profession names
+    local ProfByTableKey = {
+        Alchemy = LS["Alchemy"],
+        Smithing = LS["Blacksmithing"],
+        Enchanting = LS["Enchanting"],
+        Engineering = LS["Engineering"],
+        Leatherworking = LS["Leatherworking"],
+        Mining = LS["Mining"],
+        Tailoring = LS["Tailoring"],
+        Jewelcrafting = LS["Jewelcrafting"],
+        Cooking = LS["Cooking"],
+        FirstAid = LS["First Aid"],
+        Poisons = LS["Poisons"],
+        Herbalism = LS["Herbalism"],
+        Survival = LS["Survival"],
+    }
+
+    -- Local helper: safe traversal of sparse arrays
+    local function GetMaxNumericIndex(tbl)
+        local maxIndex = 0
+        for k, v in pairs(tbl) do
+            if type(k) == "number" and k > maxIndex and v then
+                maxIndex = k
+            end
+        end
+        return maxIndex
+    end
+
+    -- Local helper: attempt to find profession by menu table
+    local function TryResolveByTable(tableKey)
+        local t = MenuData[tableKey]
+        if not t or type(t) ~= "table" then return nil end
+        local maxIndex = GetMaxNumericIndex(t)
+        for i = 1, maxIndex do
+            local e = t[i]
+            if e and e.lootpage == pageKey then
+                -- If there's a prefix before colon in the name - use it
+                if e.name and type(e.name) == "string" then
+                    local pos = string.find(e.name, ":")
+                    if pos and pos > 1 then
+                        return string.sub(e.name, 1, pos - 1)
+                    end
+                end
+                return ProfByTableKey[tableKey]
+            end
+        end
+        return nil
+    end
+
+    -- 1) Direct match in main profession tables
+    for tableKey, _ in pairs(ProfByTableKey) do
+        local r = TryResolveByTable(tableKey)
+        if r and r ~= "" then return r end
+    end
+
+    -- 2) Match in top-level Crafting
+    if MenuData.Crafting and type(MenuData.Crafting) == "table" then
+        local maxIndex = GetMaxNumericIndex(MenuData.Crafting)
+        for i = 1, maxIndex do
+            local e = MenuData.Crafting[i]
+            if e and e.lootpage == pageKey then
+                if e.name and e.name ~= "" then
+                    return e.name
+                end
+                break
+            end
+        end
+    end
+
+    -- 3) Fallback to prefixes
+    for tableKey, localizedName in pairs(ProfByTableKey) do
+        if string.sub(pageKey, 1, string.len(tableKey)) == tableKey then
+            return localizedName
+        end
+    end
+
+    return nil
+end
+
+-- Global alias for backward compatibility
+function GetProfessionByLootPageKey(pageKey)
+    return AtlasCFM.LootUtils.GetProfessionByLootPageKey(pageKey)
+end
+
+---
+--- Returns meta-category name for a menu/loot page (Crafting, Factions, World, etc.)
+--- @param instanceName string - The instance/page key to check
+--- @return string|nil - The meta-category name if found
+--- @usage local meta = AtlasCFM.LootUtils.GetMetaCategoryForMenu("Darnassus")
+---
+function AtlasCFM.LootUtils.GetMetaCategoryForMenu(instanceName)
+    if not instanceName or not AtlasCFM or not AtlasCFM.MenuData then return nil end
+    local craft = L["Crafting"]
+    local MenuToMeta = {
+        WorldEvents = L["World Events"],
+        Factions = L["Factions"],
+        WorldBosses = L["World"],
+        PVP = L["PvP Rewards"],
+        PVPWeapons = L["PvP Rewards"],
+        PVPSets = L["PvP Rewards"],
+        Sets = L["Collections"],
+        -- Professions
+        Alchemy = craft,
+        Smithing = craft,
+        Enchanting = craft,
+        Engineering = craft,
+        Leatherworking = craft,
+        Mining = craft,
+        Tailoring = craft,
+        Jewelcrafting = craft,
+        Cooking = craft,
+        FirstAid = craft,
+        Poisons = craft,
+        Herbalism = craft,
+        Survival = craft,
+        Skinning = craft,
+        Fishing = craft,
+    }
+
+    -- Check if instanceName is a direct menu key
+    if MenuToMeta[instanceName] then return MenuToMeta[instanceName] end
+
+    -- Scan MenuData tables for the lootpage
+    for menuKey, metaName in pairs(MenuToMeta) do
+        local menuTable = AtlasCFM.MenuData[menuKey]
+        if type(menuTable) == "table" then
+            local maxIdx = 0
+            for k, _ in pairs(menuTable) do
+                if type(k) == "number" and k > maxIdx then maxIdx = k end
+            end
+            for i = 1, maxIdx do
+                local entry = menuTable[i]
+                if entry and entry.lootpage == instanceName then
+                    return metaName
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+-- Global alias for backward compatibility
+function AtlasCFM_GetMetaCategoryForMenu(instanceName)
+    return AtlasCFM.LootUtils.GetMetaCategoryForMenu(instanceName)
+end
+
+---
+--- Returns localized/readable name for loot page by its key
+--- @param pageKey string - The loot page key to get display name for
+--- @return string|nil - The display name if found, nil otherwise
+--- @usage local name = AtlasCFM.LootUtils.GetLootPageDisplayName("BWL_Nefarian")
+---
+function AtlasCFM.LootUtils.GetLootPageDisplayName(pageKey)
+    if not pageKey or pageKey == "" then return nil end
+
+    local LS = AtlasCFM.Localization.Spells
+
+    -- 0. Check if it's an instance key directly
+    if AtlasCFM and AtlasCFM.InstanceData and AtlasCFM.InstanceData[pageKey] then
+        return AtlasCFM.InstanceData[pageKey].Name or pageKey
+    end
+
+    -- 1. Try to resolve display name from MenuData first
+    if AtlasCFM and AtlasCFM.MenuData then
+        local menuTitles = {
+            Alchemy = LS["Alchemy"],
+            Smithing = LS["Blacksmithing"],
+            Enchanting = LS["Enchanting"],
+            Engineering = LS["Engineering"],
+            Leatherworking = LS["Leatherworking"],
+            Mining = LS["Mining"],
+            Tailoring = LS["Tailoring"],
+            Jewelcrafting = LS["Jewelcrafting"],
+            Cooking = LS["Cooking"],
+            FirstAid = LS["First Aid"],
+            Survival = LS["Survival"],
+            Skinning = LS["Skinning"],
+            Fishing = LS["Fishing"],
+            Poisons = LS["Poisons"],
+            Herbalism = LS["Herbalism"],
+            WorldBlues = L["World Blues"],
+            WorldEvents = L["World Events"],
+            Factions = L["Factions"],
+            PVP = L["PvP Rewards"],
+            Sets = L["Collections"],
+        }
+        if menuTitles[pageKey] then
+            return menuTitles[pageKey]
+        end
+
+        local menuTablesToCheck = {
+            AtlasCFM.MenuData.WorldEvents,
+            AtlasCFM.MenuData.Factions,
+            AtlasCFM.MenuData.PVP,
+            AtlasCFM.MenuData.PVPSets,
+            AtlasCFM.MenuData.PVPWeapons,
+            AtlasCFM.MenuData.Sets,
+            AtlasCFM.MenuData.WorldBlues,
+            AtlasCFM.MenuData.Alchemy,
+            AtlasCFM.MenuData.Smithing,
+            AtlasCFM.MenuData.Enchanting,
+            AtlasCFM.MenuData.Engineering,
+            AtlasCFM.MenuData.Herbalism,
+            AtlasCFM.MenuData.Leatherworking,
+            AtlasCFM.MenuData.Mining,
+            AtlasCFM.MenuData.Tailoring,
+            AtlasCFM.MenuData.Jewelcrafting,
+            AtlasCFM.MenuData.Cooking,
+            AtlasCFM.MenuData.FirstAid,
+            AtlasCFM.MenuData.Survival,
+            AtlasCFM.MenuData.Skinning,
+            AtlasCFM.MenuData.Fishing,
+            AtlasCFM.MenuData.Poisons,
+        }
+        for _, menuTable in pairs(menuTablesToCheck) do
+            if type(menuTable) == "table" then
+                for _, entry in pairs(menuTable) do
+                    if type(entry) == "table" and entry.lootpage == pageKey and entry.name then
+                        return entry.name
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. Check in Loot Data itself
+    if AtlasCFM.DataResolver and AtlasCFM.DataResolver.IsLootTableAvailable and AtlasCFM.DataResolver.IsLootTableAvailable(pageKey) and AtlasCFMLoot_Data and AtlasCFMLoot_Data[pageKey] then
+        local page = AtlasCFMLoot_Data[pageKey]
+        if type(page) == "table" then
+            local m = table.getn(page)
+            for i = 1, m do
+                local e = page[i]
+                if type(e) == "table" and e.name and e.name ~= "" then
+                    return e.name
+                end
+            end
+        end
+    end
+
+    return pageKey
+end
+
+-- Global alias for backward compatibility
+function AtlasCFMLoot_GetLootPageDisplayName(pageKey)
+    return AtlasCFM.LootUtils.GetLootPageDisplayName(pageKey)
+end
+
+---
+--- Gets the parent instance/category name for a loot table (used for subtitles)
+--- @param bossName string - The boss name
+--- @param instanceName string - The instance name
+--- @return string - The parent instance display name
+--- @usage local parent = AtlasCFM.LootUtils.GetLootTableParent("Nefarian", "BWL")
+---
+function AtlasCFM.LootUtils.GetLootTableParent(bossName, instanceName)
+    -- Return instance name as extratext (subtitle)
+    if instanceName and instanceName ~= "" then
+        -- 1. Check Meta-Categories via shared function
+        local metaCategory = AtlasCFM.LootUtils.GetMetaCategoryForMenu(instanceName)
+        if metaCategory then
+            return metaCategory
+        end
+
+        -- 2. Check InstanceData
+        if AtlasCFM and AtlasCFM.InstanceData and AtlasCFM.InstanceData[instanceName] and AtlasCFM.InstanceData[instanceName].Name then
+            return AtlasCFM.InstanceData[instanceName].Name
+        end
+
+        -- 3. Handle prefixes for WorldBlues, etc.
+        local specialPrefixes = {
+            WorldBlues = L["World Blues"] or "World Blues",
+            WorldEnchants = L["World Enchants"] or "World Enchants",
+            WorldEpics = L["World Epics"] or "World Epics",
+            WorldEvents = L["World Events"] or "World Events",
+            PVPRewards = L["PvP Rewards"] or "PvP Rewards",
+            PVP = L["PvP Rewards"] or "PvP Rewards",
+        }
+        for prefix, localizedName in pairs(specialPrefixes) do
+            if string.sub(instanceName, 1, string.len(prefix)) == prefix then
+                return localizedName
+            end
+        end
+
+        -- Fallback: check if instanceName is a loot page key
+        local displayName = AtlasCFM.LootUtils.GetLootPageDisplayName(instanceName)
+        if displayName and displayName ~= instanceName then
+            return displayName
+        end
+        return instanceName
+    end
+
+    -- If no instance name, try to find it by boss name
+    if bossName and AtlasCFM.InstanceData then
+        for instanceKey, instanceData in pairs(AtlasCFM.InstanceData) do
+            if instanceData.Bosses then
+                for _, bossData in ipairs(instanceData.Bosses) do
+                    if bossData.name == bossName then
+                        return instanceData.Name or instanceKey
+                    end
+                end
+            end
+        end
+    end
+
+    return L["Unknown"] or "Unknown"
+end
+
+-- Global alias for backward compatibility
+function GetLootTableParent(bossName, instanceName)
+    return AtlasCFM.LootUtils.GetLootTableParent(bossName, instanceName)
+end

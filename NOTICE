@@ -1,0 +1,481 @@
+Equadis' Classic Overhaul bundles work from other authors. Their licences are
+reproduced here in full, as those licences require, and each is noted at the
+top of the file that carries the code.
+
+================================================================================
+THE OVERHAUL ITSELF
+GNU General Public License v3.0 -- see LICENSE
+Copyright (c) 2026 Equadis
+
+**It began MIT and moved deliberately.** Two of the addons worth taking from --
+VCB and T-RestedXP -- are GPL-3, and GPL-3 code can only be combined into a
+GPL-3 work. Staying MIT would have meant reimplementing them from behaviour or
+going without.
+
+MIT is compatible in that direction, so every MIT-licensed port already here is
+unaffected: its licence and copyright stand as written below, and this file goes
+on reproducing them because those licences require it.
+
+**The move is one-way.** Nothing licensed GPL-3 can be taken back out from under
+GPL-3, so this cannot return to MIT.
+
+--------------------------------------------------------------------------------
+NOT BUNDLED, AND WHY
+
+**VCB** (Vanilla Consolidated Buff-frames, by Shino) and **T-RestedXP** are both
+GPL-3 and are now permitted rather than blocked -- that is what this relicence
+was for. Neither is ported yet; when either is, its entry appears below.
+
+**TomTom for Turtle WoW** carries no licence at all -- no LICENSE file, and no
+mention of one in any source file, the TOC or the README. That is not the same
+as GPL-3 and it is not more permissive: with no grant, there is no permission to
+copy it, which is stricter than any licence would be. Going GPL-3 does not
+change that. It needs the upstream grant found, or the author asked, or the
+waypoint list written from scratch.
+
+**Ace2** -- AceAddon, AceDB, AceConsole, AceEvent, AceHook, AceLocale,
+AceModuleCore, AceOO, AceTab -- shipped with several of the addons below and is
+not ported. This addon has its own module registry, profile store, event map and
+options generator, so that layer is replaced rather than carried.
+
+**Blizzard's own art** is referenced by path rather than copied. The class
+portrait atlas and the frame textures are in the client already; a copy would be
+a redistribution nobody downstream could relicense.
+
+
+================================================================================
+ShaguDPS -- combat log parser
+https://github.com/shagu/ShaguDPS
+
+Used by: modules/parser.lua, modules/damage.lua
+
+The MIT License (MIT)
+
+Copyright (c) 2016-2021 Eric Mauser (Shagu)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+DruidManaLib-1.0 -- shapeshifted mana estimate
+by Aviana
+
+Used by: modules/druidmana.lua
+
+Ported and rewritten standalone so it no longer requires Ace2. The estimation
+model -- spirit regeneration, mana per five, the shapeshift cost and the five
+second rule -- is Aviana's.
+
+================================================================================
+ShaguPlates -- nameplates
+The MIT License (MIT)
+Copyright (c) 2016-2021 Eric Mauser (Shagu)
+
+Used by: modules/nameplates.lua (in progress)
+
+Same author and licence as ShaguDPS above, whose full licence text applies
+equally here. The nameplate module is derived from ShaguPlates' own, re-chromed
+to take OmniBars' shared media, profiles and options panel rather than carrying
+its own.
+
+================================================================================
+Equadis' Unit Frames -- unit frames
+MIT License
+Copyright (c) 2016 Richard
+
+Used by: modules/unitframes.lua (in progress)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+================================================================================
+Prat / Prat-V / Equadis' Chat Tweaks -- chat
+MIT License
+Copyright (c) 2026 Equadis
+
+Used by: modules/chat.lua, commands.lua
+
+Ported from Equadis' Chat Tweaks, which is Prat-V plus a Commands module and a
+test suite -- every other file in the two trees is identical, so that fork is the
+one taken.
+
+**Prat itself is older than either.** The module headers credit Curney
+(asml8ed@gmail.com) and Krtek (krtek4@gmail.com), inspired by idChat2 by
+Industrial, originally hosted on WowAce. The line-level work in Timestamps,
+ChannelNames, Editbox and the rest is theirs; the fork adds fixes and features on
+top. Credit belongs upstream first.
+
+The Ace2 libraries that shipped with it -- AceAddon, AceDB, AceConsole,
+AceEvent, AceHook, AceLocale, AceModuleCore, AceOO, AceTab -- are not ported.
+OmniBars has its own module registry, profile store, event map and options
+generator, so that layer is replaced rather than carried.
+
+**The Commands module is the source of `commands.lua`** -- /fps, /hud,
+/sheath, /autorun, /combatlog and /walk, and the chat-watcher trick that lets
+/hud be typed again once it has hidden the interface. What is new here is
+binding an arbitrary Key Bindings action to a command of your own naming.
+
+================================================================================
+QuestHaste -- quest hand-in
+MIT License
+Copyright (c) WobLight
+
+<https://github.com/McPewPew/QuestHaste>
+
+Used by: modules/qol.lua, the Quests section
+
+The repository carries no LICENSE file; MIT confirmed by the maintainer of this
+addon. Recorded here rather than assumed, because the absence is real and the
+next person to read this deserves to know it was checked rather than skipped.
+
+Ported rather than copied -- the storage, the settings, the event dispatch and
+the slash grammar all belong to this addon's shapes -- but two design decisions
+are WobLight's and they are the good part:
+
+  * **It is per quest.** The obvious version of this feature accepts and hands in
+    everything, and that is the version that makes you miss the one quest you had
+    not read. Opt-in, one at a time.
+
+  * **The modifiers are a grammar rather than a switch.** Control remembers and
+    proceeds, Alt forgets, Shift inverts, nothing does what the list says. Four
+    behaviours on keys you are already holding, with no interface needed in the
+    moment you need them.
+
+Also fixed on the way through: QuestHaste_RemoveAutoAccept calls
+QuestHaste_IsComplete, which does not exist -- an error every time an
+accept-only quest is forgotten with Alt.
+
+================================================================================
+DragonflightUI-Reforged -- action bars
+MIT License
+Copyright (c) Guzruul, reforged by Stormhand
+
+Used by: modules/actionbars.lua
+
+The repository carries no LICENSE file; MIT confirmed by the maintainer of this
+addon. Recorded rather than assumed, for the same reason as QuestHaste above.
+
+Ported from its `modules/bars/bars.lua`. What is taken is the part that had been
+worked out rather than guessed at:
+
+  * The **button families and their binding prefixes**, which are not derivable
+    from one another. `PetActionButton` binds to BONUSACTIONBUTTON and
+    `BonusActionButton` binds to ACTIONBUTTON -- both read like mistakes and
+    neither is. That map is the kind of thing found once, painfully.
+
+  * The **layout list**: the six ways twelve buttons divide into rows and
+    columns, in the order somebody reads them.
+
+  * The **keybind abbreviations**. 1.12 writes SHIFT-BUTTON4 across the corner of
+    a 36 pixel icon, so everybody leaves the text on and nobody reads it. The
+    substitutions are what make it legible.
+
+  * The decision to anchor to **containers of our own** rather than to
+    MainMenuBar, which is what keeps UIPARENT_MANAGED_FRAME_POSITIONS from
+    quietly moving everything back.
+
+Its own framework -- DFRL:NewMod, NewDefaults, GetTempDB, NewCallbacks -- is
+replaced by this addon's module registry, profile store and options generator,
+the same substitution made for Prat's Ace2.
+
+**Its art is not taken.** The bar backing plate and the gryphons are textures,
+some of them reworked Blizzard art, which nobody downstream can relicense. They
+need a decision rather than a copy. The layout engine works without them.
+
+One difference worth stating: DragonflightUI hides Blizzard's keybind font
+strings and creates its own. This restyles the originals instead, so the client
+goes on maintaining the text when a binding changes and there is nothing to keep
+in step.
+
+================================================================================
+ShaguPlates -- nameplates
+MIT License
+Copyright (c) 2016-2021 Eric Mauser (Shagu)
+
+Used by: modules/nameplates.lua (first slice)
+
+Ported from its `modules/nameplates.lua`. Almost everything taken is a client
+quirk rather than a design decision, because a 1.12 nameplate leaves no room for
+design decisions:
+
+  * **Detection by border texture.** A plate has no name, no unit token and no
+    event. Watching WorldFrame's child count and checking whether the first
+    region is `Interface\Tooltips\Nameplate-Border` is not a technique anybody
+    chose; it is the only signature there is.
+
+  * **Hostility read off the health bar's colour.** There is no unit to give
+    UnitReaction, so red/yellow/green/blue is the answer. The thresholds are
+    Shagu's, loose at one end and tight at the other, because the client's
+    colours are exact and anything else should be left alone.
+
+  * **Silencing rather than removing.** The client made those regions and will
+    reuse them; a texture blanked and a font string squeezed to nothing are
+    reversible, and anything actually destroyed returns as an error when a plate
+    is recycled.
+
+  * **The region order** -- border, glow, name, level, level icon, raid icon --
+    which is what makes `regions[3]` the name. Kept as a named list rather than
+    as indices, because an index meaning "the name" is exactly what is wrong for
+    a year before anybody notices.
+
+  * **Abbreviating names rather than truncating them.** "Bloodscalp Berserker"
+    becomes "B. Berserker", which is still the thing you were looking for;
+    truncation gives "Bloodscalp Ber", which is not.
+
+Its `IsNamePlate` checks the parameter's object type and then reads a file-level
+upvalue for the regions, which works only because the caller assigns both. Ported
+against the parameter, so it is a function rather than a step that has to stay in
+sequence.
+
+Target detection, threat colouring and combo points followed in the next
+release. Not yet ported: cast bars, debuff icons and totem icons.
+
+**Cast bars are not a slice, they are a library.** 1.12 has no UnitCastingInfo
+and no UnitChannelInfo; ShaguPlates ships libcast, four hundred lines that
+synthesise both by watching SPELLCAST_* for the player and the combat log for
+everything else. Debuffs are libdebuff on the same footing. Both belong with
+modules/parser.lua rather than inside the nameplate module, and both are their
+own piece of work.
+
+One rule departed from deliberately: ShaguPlates reaches threat and casts for
+non-target plates through SuperWoW's GUID support, which is a client mod rather
+than an API. The standing rule here is that a client mod may improve an answer
+and never be required for one, so those features apply to the target -- the one
+plate vanilla gives a unit token for -- and their captions say so.
+
+================================================================================
+ShaguPlates libcast -- cast detection
+MIT License
+Copyright (c) 2016-2021 Eric Mauser (Shagu)
+
+Used by: modules/casts.lua
+
+1.12 has no UnitCastingInfo and no UnitChannelInfo -- they arrive in 2.0 -- so
+every vanilla addon drawing a cast bar for anything but the player has built this
+layer itself. libcast is the one followed here: the event set, the split between
+the player's exact casts and everybody else's parsed ones, and the decision to
+key the store by unit **name** rather than by token.
+
+That last one is the load-bearing choice and it is Shagu's. A nameplate has a
+name and no unit token, so a library keyed by token would have been target-only
+and cast bars would work on one plate out of forty.
+
+**One deliberate departure: the spell database is not ported.** ShaguPlates ships
+every spell in the game with its cast time, per locale, which is thousands of
+lines to carry and keep current. This learns instead -- every spell the player
+casts reports its exact duration to the client, and mobs cast a great many of the
+same spells that players do. A spell not yet known draws a full bar with its name
+on it, which is the useful half of a cast bar, and fills properly from the first
+time the player casts it.
+
+The learned times are account-wide beside the roster and the vendor prices, on
+the same argument: a cast time is a fact about the world rather than a setting.
+Longest-seen wins, because a cast shortens with haste and lengthens with nothing.
+
+================================================================================
+Equadis' UnitFrames -- unit frames
+MIT License
+Copyright (c) 2016 Richard
+
+Forked from UnitFramesImproved_Vanilla by Ko0zi (Richard Bertilsson), itself
+UnitFramesImproved for Legion by Althalla (Kim Forsberg).
+
+Used by: modules/unitframes.lua (first slice)
+
+**The design is the thing taken, and it is the right one.** These are Blizzard's
+frames restyled, not replacements. The player, target, target-of-target and pet
+frames already know which unit they show, already update on the right events, and
+already handle ghosts, tapped mobs, the pet happiness meter and the rested
+indicator. What they do badly is look like 2004 and refuse to say how much health
+anybody has -- and both of those are texture and font work on frames that are
+already correct.
+
+Also taken: the colour ordering (tapped before anything else, class for players,
+reaction for NPCs), the decision to keep NPC class colouring as a separate switch
+that ships off because an NPC's class is meaningless, and the observation that
+"true format" -- 1.11k rather than 1110 -- is what makes text on a small frame
+readable at all. That last ships on here where the original had it off.
+
+Its own five-page options window is not ported. The settings are re-declared as
+sections of one tab in this addon's own generator, and the four settings it kept
+in CVars -- class portrait, dark mode, compact mode, improved pet -- become
+ordinary profile keys, since a profile is already per-character where it needs to
+be.
+
+**Its copy of UI-CLASSES-CIRCLES is not ported either.** That file is Blizzard's
+and is already installed; the client's own path is used instead, so there is
+nothing to relicense and nothing to keep in step with a patch.
+
+**Everything it bundles is now ported.** MobHealth3 by Sarf and Neronix, Simple
+Feign Health by Brodrick, and SHIRSIG's Retarget -- each MIT or public, each
+credited by the original, and each reduced to the idea rather than carried whole.
+
+MobHealth3 is four hundred lines of Ace2 around one insight: the percentage the
+client gives and the damage you deal are two views of one number. That insight
+is ported; the framework around it is this addon's.
+
+The feign-death piece is Shagu's twenty-nine-line version rather than the
+three-hundred-line one, with one deliberate change: **the global UnitHealth is
+not replaced.** Both originals override it, which fixes the number for every
+addon at once and is exactly why it is wrong -- a core function that lies is one
+every neighbour is now reading wrong, and none of them consented. This addon
+writes its own text, so knowing internally is enough.
+
+The energy ticker and the druid mana estimate it also bundles were already
+modules of this addon, ported from their own sources.
+
+================================================================================
+LevelRange -- zone level ranges on the world map
+Copyright (c) 2006 Philip Hughes (Bull3t)
+Later hands: Tenyar97, rado-boy, blehz, rafacc87, Diginfotek, Spartelfant
+
+<https://github.com/Spartelfant/LevelRange-Turtle>
+
+Used by: modules/qol.lua, the Map section
+
+**Its licence is stated in its own source rather than in a file**, and is quoted
+here in full because that is the only place it exists:
+
+    An unlimited license to use, reproduce and copy this work is granted, on
+    the condition that the licensee accepts all responsibility and liability
+    for any damage that may arise from the use of this AddOn.
+
+What is taken is the table. Fifty-one zones with their level ranges and the
+faction that holds them -- including the ones Turtle added, which is the half
+that could not have been written from memory because most of them exist nowhere
+else.
+
+Its own options frame, its five locale files, its slash commands and its
+instance and fishing tables are not ported. The instance and fishing data are
+worth revisiting; they were left out to keep this to one thing.
+
+One difference in the drawing: LevelRange builds a tooltip of its own and
+manages showing and hiding it. This appends to WorldMapFrameAreaLabel instead --
+one font string the client is already updating as the cursor moves. No frame to
+make, nothing to hide when the cursor leaves, because the client blanks the
+label itself.
+
+The trailing-space workaround is its finding, kept: Turtle ships at least one
+zone whose in-game name ends in a space and matches nothing without trimming.
+
+================================================================================
+pfExtend -- loot indexing and browser behaviour
+MIT License
+Copyright (c) 2026 TinyStick
+
+Used by: modules/itemdatabase.lua, modules/itembrowser.lua and modules/tooltip.lua
+
+The ShowLoots behaviour is adapted into ECO rather than carrying pfExtend's UI
+framework: the reverse pfQuest loot lookup, exact drop percentages, reference-
+loot support and its two Turtle loot-data corrections are retained. Its full
+loot-browser idea is also carried into ECO as a separate Item Database window.
+ECO's browser UI, Atlas-CFM adapter, tooltip-only world-drop filter and shared
+sorting model are new code. The QuestHelper map browser is not ported.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+================================================================================
+pfQuest + pfQuest-turtle -- embedded loot data snapshot
+MIT License
+Copyright (c) 2017-2021 Eric Mauser (Shagu)
+Copyright (c) 2021 Eric Mauser (Shagu)
+
+Used by: data/pfquest_loot.lua and modules/itemdatabase.lua
+
+ECO 0.86.4 includes a generated, compact snapshot of the ordinary-world loot
+relationships and English source/item names from the user-supplied pfQuest 7.0.1
+and pfQuest-turtle databases. Turtle patch rows are applied with the same
+replace/delete semantics as pfQuest-turtle/patchtable.lua; item U/O/R relations
+are then reversed using the pfExtend ShowLoots model. The generated snapshot is
+runtime-independent: pfQuest does not need to be installed or enabled for ECO's
+loot tooltip/database to work.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Bundled Atlas-CFM-DestinationClick
+----------------------------------
+Source: https://github.com/eqomdx/Atlas-CFM-DestinationClick
+Bundled commit: 9d92e187cb327290feccf55542d5d3e05215a2e2
+License: GNU GPL v2 or later. See third_party/Atlas-CFM/LICENSE.
+The bundled path constant is adjusted for EquadisClassicOverhaul and its own
+GameTooltip decorator is not loaded; ECO owns tooltip presentation.
+
+Bundled AtlasLoot TW Edition data
+---------------------------------
+Source supplied by the user from https://github.com/CosminPOP/AtlasLoot.git
+Bundled commit: 78022f8531d5095f32858514747c2c54ddcfe7e9
+The original source tree did not include a standalone LICENSE file; the bundled
+copy is used as a data provider inside this user-requested build.
+
+
+UnitScan behaviour reference
+---------------------------
+Source reference: https://github.com/shirsig/unitscan-vanilla
+Author: Shirsig
+
+The upstream repository does not publish a LICENSE file. ECO therefore does not
+bundle or copy its Lua, textures, or audio. modules/unitscan.lua is an independent
+implementation of the documented vanilla behaviour: quiet exact-name probes via
+TargetByName, a 0.1 second scan cadence, removal-after-detection by default, and a
+visible/audible alert. ECO uses Blizzard-native UI textures and sounds.

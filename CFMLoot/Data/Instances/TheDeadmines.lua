@@ -1,0 +1,253 @@
+---
+--- TheDeadmines.lua - The Deadmines dungeon instance loot data
+---
+--- This module contains comprehensive loot tables and boss data for The Deadmines
+--- 5-player dungeon instance. It includes all boss encounters, rare drops,
+--- and dungeon-specific items with their respective drop rates.
+---
+--- Features:
+--- • Complete boss encounter loot tables
+--- • Rare and uncommon item drops
+--- • Dungeon entrance and layout data
+--- • Level-appropriate loot organization
+--- • Quest reward items
+---
+--- @compatible World of Warcraft 1.12
+---
+
+local _G = getfenv()
+AtlasCFM = _G.AtlasCFM or {}
+
+local L = AtlasCFM.Localization.UI
+local LZ = AtlasCFM.Localization.Zones
+local LB = AtlasCFM.Localization.Bosses
+local LIS = AtlasCFM.Localization.ItemSets
+local LMD = AtlasCFM.Localization.MapData
+
+AtlasCFM.InstanceData = AtlasCFM.InstanceData or {}
+
+AtlasCFM.InstanceData.TheDeadmines = {
+    Name = LZ["The Deadmines"],
+    Location = LZ["Westfall"],
+    Level = { 10, 24 },
+    Acronym = "VC",
+    MaxPlayers = 5,
+    DamageType = L["Physical"],
+    Entrances = {
+        { letter = "A) " .. L["Entrance"] },
+        { letter = "B) " .. L["Exit"] }
+    },
+
+    Bosses = {
+        {
+            id = "DMJaredVoss",
+            prefix = "1)",
+            servers = { AtlasCFM.Server.TURTLE1 },
+            name = LB["Jared Voss"],
+            loot = {
+                { id = 55377, dropRate = 50 },                                                                              -- Chemist's Shawl
+                {},
+                { id = 55376, dropRate = 25 },                                                                              -- Mixologist
+                { id = 55375, dropRate = 25 },                                                                              -- Corrosive Vial
+                {},
+                { id = 41429, dropRate = 100,                         container = { 70239, 70240 } },                       -- Voss' Sizzling Brew
+                {},
+                { id = 107,   disc = L["Level One Luntic Challenge"], dropRate = 100,              servers = { AtlasCFM.Server.TURTLE } }, -- Defias Longbow
+            }
+        },
+        {
+            id = "DMRhahkZor",
+            prefix = "2)",
+            name = LB["Rhahk'Zor"],
+            loot = {
+                { id = 872,   dropRate = 5 },                                                                                -- Rockslicer
+                { id = 5187,  dropRate = 95 },                                                                               -- Rhahk'Zor's Hammer
+                {},
+                { id = 80706, dropRate = 50,                          servers = { AtlasCFM.Server.TURTLE1 } },               -- Ogremight Gauntlets
+                {},
+                { id = 9496,  disc = L["Level One Luntic Challenge"], dropRate = 100,                       servers = { AtlasCFM.Server.TURTLE } }, -- Defias Mage Drape
+            }
+        },
+        {
+            id = "DMMinerJohnson",
+            prefix = "3)",
+            name = LB["Miner Johnson"],
+            postfix = L["Rare"],
+            loot = {
+                { id = 5444, dropRate = 65 }, -- Miner's Cape
+                {},
+                { id = 5443, dropRate = 35 }, -- Gold-plated Buckler
+            }
+        },
+        {
+            id = "DMSneed",
+            prefix = "4)",
+            name = LB["Sneed"],
+            loot = {
+                { id = 5194,  dropRate = 35 },                                                                                -- Taskmaster Axe
+                { id = 5195,  dropRate = 65 },                                                                                -- Gold-flecked Gloves
+                {},
+                { id = 80707, dropRate = 60,                          servers = { AtlasCFM.Server.TURTLE1 } },                -- Operator Boots
+                {},
+                { id = 81315, dropRate = 100,                         container = { 81316, 81317 },         servers = { AtlasCFM.Server.TURTLE1 } }, -- Prototype Shredder X0-1 Schematic
+                {},
+                { id = 50256, disc = L["Level One Luntic Challenge"], dropRate = 100,                       servers = { AtlasCFM.Server.TURTLE } }, -- Fractured Sword
+            }
+        },
+        {
+            id = "DMSneedsShredder",
+            name = LMD["Sneed's Shredder"],
+            loot = {
+                { id = 1937, dropRate = 10 },                              -- Buzz Saw
+                { id = 2169, dropRate = 90 },                              -- Buzzer Blade
+                {},
+                { id = 7365, dropRate = 100, container = { 7606, 7607 } }, -- Gnoam Sprecklesprocket
+            }
+        },
+        {
+            id = "DMGilnid",
+            prefix = "5)",
+            name = LB["Gilnid"],
+            loot = {
+                { id = 1156, dropRate = 45 }, -- Lavishly Jeweled Ring
+                { id = 5199, dropRate = 55 }, -- Smelting Pants
+            }
+        },
+        {
+            id = "DMHarvester",
+            prefix = "6)",
+            servers = { AtlasCFM.Server.TURTLE1 },
+            name = LB["Masterpiece Harvester"],
+            loot = {
+                { id = 55380, dropRate = 50 }, -- Craftsman's Pants
+                {},
+                { id = 55379, dropRate = 25 }, -- Slag Slugger
+                { id = 55378, dropRate = 25 }, -- Inventor's Mitts
+            }
+        },
+        {
+            id = "DMMrSmite",
+            prefix = "7)",
+            name = LB["Mr. Smite"],
+            loot = {
+                { id = 7230,  dropRate = 20 },                                            -- Smite's Mighty Hammer
+                { id = 5192,  dropRate = 30 },                                            -- Thief's Blade
+                { id = 5196,  dropRate = 30 },                                            -- Smite's Reaver
+                { id = 81007, dropRate = 20, servers = { AtlasCFM.Server.TURTLE1 } },     -- Blackened Defias Mask
+                {},
+                { id = 26024, dropRate = 1,  servers = { AtlasCFM.Server.VANILLA_PLUS } }, -- Smite's Jaw Breaking Tool
+            }
+        },
+        {
+            id = "DMCookie",
+            prefix = "8)",
+            name = LB["Cookie"],
+            loot = {
+                { id = 5198,  dropRate = 35 },                                                                               -- Cookie's Stirring Rod
+                { id = 5197,  dropRate = 65 },                                                                               -- Cookie's Tenderizer
+                { id = 80708, dropRate = 60,                          servers = { AtlasCFM.Server.TURTLE1 } },               -- Cookie's Apron
+                {},
+                { id = 8490,  dropRate = 15 },                                                                               -- Siamese
+                {},
+                { id = 60526, dropRate = 100,                         container = { 70070 },                servers = { AtlasCFM.Server.TURTLE1 } }, -- Grayson's Pendant
+                {},
+                { id = 9338,  disc = L["Level One Luntic Challenge"], dropRate = 100,                       servers = { AtlasCFM.Server.TURTLE } }, -- Murloc Eye on a String
+            }
+        },
+        {
+            id = "DMCaptainGreenskin",
+            prefix = "9)",
+            name = LB["Captain Greenskin"],
+            loot = {
+                { id = 5201,  dropRate = 40 }, -- Emberstone Staff
+                { id = 10403, dropRate = 30 }, -- Blackened Defias Belt
+                { id = 5200,  dropRate = 30 }, -- Impaling Harpoon
+            }
+        },
+        {
+            id = "DMVanCleef",
+            prefix = "10)",
+            name = LB["Edwin VanCleef"],
+            loot = {
+                { id = 5193,  dropRate = 30 },                                                                                -- Cape of the Brotherhood
+                { id = 5202,  dropRate = 30 },                                                                                -- Corsair's Overshirt
+                { id = 10399, dropRate = 20 },                                                                                -- Blackened Defias Armor
+                { id = 5191,  dropRate = 20 },                                                                                -- Cruel Barb
+                { id = 81005, dropRate = 8,                           servers = { AtlasCFM.Server.TURTLE1 } },                -- Spiked Defias Spaulders
+                {},
+                { id = 2874,  dropRate = 100,                         container = { 2933 } },                                 -- An Unsent Letter
+                { id = 3637,  dropRate = 100,                         container = { 6087, 2041, 2042 } },                     -- Head of VanCleef
+                { id = 51217, disc = L["Transmogrification"],         dropRate = 1,                         servers = { AtlasCFM.Server.TURTLE1 } }, -- Fashion Coin
+                {},
+                { id = 29980, disc = L["Level One Luntic Challenge"], dropRate = 100,                       servers = { AtlasCFM.Server.TURTLE } }, -- Broken Stonemason's Guild Signet
+                { id = 108,   disc = L["Level One Luntic Challenge"], dropRate = 100,                       servers = { AtlasCFM.Server.TURTLE } }, -- Tattered Defias Rags
+            }
+        },
+        {
+            id = "DMTrash",
+            name = L["Trash Mobs"] .. "-" .. LZ["The Deadmines"],
+            loot = {
+                { id = 8492,  dropRate = 4 },                                           -- Green Wing Macaw
+                {},
+                { id = 80802, dropRate = 3,    servers = { AtlasCFM.Server.TURTLE1 } }, -- Goblin Mail Boots
+                { id = 80803, dropRate = 3,    servers = { AtlasCFM.Server.TURTLE1 } }, -- Goblin Mail Hauberk
+                { id = 1943,  dropRate = 4,    servers = { AtlasCFM.Server.TURTLE1 } }, -- Goblin Mail Leggings
+                {},
+                { id = 10401, dropRate = 4,    servers = { AtlasCFM.Server.TURTLE1 } }, -- Blackened Defias Gloves
+                { id = 10400, dropRate = 1.75, servers = { AtlasCFM.Server.TURTLE1 } }, -- Blackened Defias Leggings
+                { id = 10402, dropRate = 1.2,  servers = { AtlasCFM.Server.TURTLE1 } }, -- Blackened Defias Boots
+            }
+        },
+        { name = LIS["Defias Leather"], items = "Deadmines" },
+    },
+}
+
+AtlasCFM.InstanceData.TheDeadminesEnt = {
+    Name = LZ["The Deadmines"] .. " (" .. L["Entrance"] .. ")",
+    Location = LZ["Westfall"],
+    Acronym = "DM",
+    Entrances = {
+        { letter = "A)", info = L["Entrance"] },
+        { letter = "B)", info = LZ["The Deadmines"] }
+    },
+    Bosses = {
+        {
+            id = "DMMarisaduPaige",
+            prefix = "1)",
+            name = LB["Marisa du'Paige"],
+            postfix = L["Rare"] .. ", " .. L["Varies"],
+            loot = {
+                { id = 3019, dropRate = 25 }, -- Noble's Robe
+                { id = 4660, dropRate = 75 }, -- Walking Boots
+            }
+        },
+        {
+            id = "DMBrainwashedNoble",
+            prefix = "2)",
+            name = LB["Brainwashed Noble"],
+            postfix = L["Rare"],
+            loot = {
+                { id = 5967, dropRate = 64 }, -- Girdle of Nobility
+                { id = 3902, dropRate = 26 }, -- Staff of Nobles
+            }
+        },
+        {
+            id = "DMForemanThistlenettle",
+            prefix = "3)",
+            name = LB["Foreman Thistlenettle"],
+            loot = {
+                { id = 1875, dropRate = 100, container = { 1893 } }, -- Thistlenettle's Badge
+            }
+        },
+    }
+}
+
+for _, bossData in ipairs(AtlasCFM.InstanceData.TheDeadmines.Bosses) do
+    bossData.items = bossData.items or AtlasCFM.CreateItemsFromLootTable(bossData)
+    bossData.loot = nil
+end
+
+for _, bossData in ipairs(AtlasCFM.InstanceData.TheDeadminesEnt.Bosses) do
+    bossData.items = bossData.items or AtlasCFM.CreateItemsFromLootTable(bossData)
+    bossData.loot = nil
+end

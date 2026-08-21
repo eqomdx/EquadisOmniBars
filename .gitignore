@@ -1,0 +1,22 @@
+# Anything that is not part of the addon itself stays out of the repo: working
+# notes, tool output, editor and assistant state. A plain clone into
+# Interface\AddOns should contain exactly what the game loads, plus the tests
+# and the public README.
+
+# assistant / editor state
+.claude/
+
+# knowledge graph output -- generated, and belongs under D:\Graphify\
+graphify-out/
+
+# session handover notes: local working document, full of absolute paths
+HANDOFF.md
+
+# session status notes: local working doc, same reason as HANDOFF.md
+STATUS.md
+
+# a patch against Nampower's C++ source, not part of what the game loads. It is
+# a note about a possible client change, and shipping it in an addon folder
+# invites somebody to think the addon needs a custom Nampower build. It does
+# not -- the yardage ladder works on a stock one.
+native/

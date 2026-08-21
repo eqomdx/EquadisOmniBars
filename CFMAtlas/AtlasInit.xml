@@ -1,0 +1,20 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/">
+	<!-- Include files -->
+	<Include file="AtlasConfig.lua"/>
+	<Include file="AtlasServer.lua"/>
+	<Include file="..\Locales\locales.xml"/>
+	<Include file="..\CFMLoot\Core\Utils.lua"/>
+	<Include file="..\CFMLoot\Core\Cache.lua"/>
+	<Include file="..\CFMLoot\Core\ItemDB.lua"/>
+	<Include file="..\CFMLoot\Data\DataInit.xml"/>
+	<Include file="AtlasDropDown.lua"/>
+	<Include file="AtlasUILogic.lua"/>
+	<Include file="Atlas.lua"/>
+	<Include file="AtlasHewdrop.lua"/>
+	<Include file="AtlasUI.lua"/>
+	<Include file="AtlaspfUI.lua"/>
+	<Include file="AtlasOptionsUI.lua"/>
+	<Include file="AtlasOptions.lua"/>
+	<Include file="AtlasVersion.lua"/>
+	<Include file="AtlasMapMarkers.lua"/>
+</Ui>

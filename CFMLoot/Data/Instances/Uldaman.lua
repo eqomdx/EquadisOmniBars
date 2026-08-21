@@ -1,0 +1,331 @@
+---
+--- Uldaman.lua - Uldaman dungeon instance loot data
+---
+--- This module contains comprehensive loot tables and boss data for the Uldaman
+--- 5-player dungeon instance. It includes all boss encounters, rare drops,
+--- and dungeon-specific items with their respective drop rates.
+---
+--- Features:
+--- • Complete boss encounter loot tables
+--- • Mid-level dungeon item drops
+--- • Dungeon entrance and layout data
+--- • Level-appropriate loot organization
+--- • Quest reward items
+---
+--- @compatible World of Warcraft 1.12
+---
+
+local _G = getfenv()
+AtlasCFM = _G.AtlasCFM or {}
+
+local L = AtlasCFM.Localization.UI
+local LZ = AtlasCFM.Localization.Zones
+local LB = AtlasCFM.Localization.Bosses
+local LMD = AtlasCFM.Localization.MapData
+
+local Colors = AtlasCFM.Colors
+
+AtlasCFM.InstanceData = AtlasCFM.InstanceData or {}
+
+AtlasCFM.InstanceData.Uldaman = {
+    Name = LZ["Uldaman"],
+    Location = LZ["Badlands"],
+    Level = { 30, 51 },
+    Acronym = "Uld",
+    MaxPlayers = 5,
+    DamageType = L["Physical"],
+    Entrances = {
+        { letter = "A", info = L["Entrance"] },
+        { letter = "B", info = LMD["Back"] },
+    },
+    Keys = {
+        { name = LMD["Staff of Prehistoria"], loot = "VanillaKeys", info = LB["Ironaya"] }
+    },
+    Bosses = {
+        {
+            id = "UldBaelog",
+            prefix = "1)",
+            name = LB["Baelog"],
+            defaults = { dropRate = 50 },
+            loot = {
+                { id = 9401 },                                 -- Nordic Longshank
+                { id = 9400 },                                 -- Baelog's Shortbow
+                {},
+                { id = 9399, dropRate = 100, quantity = 175 }, -- Precision Arrow
+            }
+        },
+        {
+            id = "UldEric",
+            name = LB["Eric \"The Swift\""],
+            defaults = { dropRate = 50 },
+            loot = {
+                { id = 9394 },                                         -- Horned Viking Helmet
+                { id = 9398 },                                         -- Worn Running Boots
+                {},
+                { id = 2459, disc = L["Consumable"], dropRate = 100 }, -- Swiftness Potion
+            }
+        },
+        {
+            id = "UldOlaf",
+            name = LB["Olaf"],
+            defaults = { dropRate = 50 },
+            loot = {
+                { id = 9404 },                                         -- Olaf's All Purpose Shield
+                { id = 9403 },                                         -- Battered Viking Shield
+                {},
+                { id = 1177, disc = L["Consumable"], dropRate = 100 }, -- Oil of Olaf
+            }
+        },
+        {
+            id = "UldBaelogsChest",
+            name = LMD["Baelog's Chest"],
+            loot = {
+                { id = 7740, disc = L["Misc"], dropRate = 100, container = { 7733 } }, -- Gni'kiv Medallion
+            }
+        },
+        {
+            id = "UldConspicuousUrn",
+            name = LMD["Conspicuous Urn"],
+            color = Colors.GREY
+        },
+        {
+            id = "UldRemainsofaPaladin",
+            prefix = "2)",
+            name = LMD["Remains of a Paladin"],
+            color = Colors.GREY
+        },
+        {
+            id = "UldRevelosh",
+            prefix = "3)",
+            name = LB["Revelosh"],
+            defaults = { dropRate = 25 },
+            loot = {
+                { id = 9389 },                                                         -- Revelosh's Spaulders
+                { id = 9388 },                                                         -- Revelosh's Armguards
+                { id = 9390 },                                                         -- Revelosh's Gloves
+                { id = 9387 },                                                         -- Revelosh's Boots
+                {},
+                { id = 7741, disc = L["Misc"], dropRate = 100, container = { 7733 } }, -- The Shaft of Tsol
+            }
+        },
+        {
+            id = "UldIronaya",
+            prefix = "4)",
+            name = LB["Ironaya"],
+            postfix = L["Summon"],
+            defaults = { dropRate = 33 },
+            loot = {
+                { id = 9409 },                                                                                       -- Ironaya's Bracers
+                { id = 9407 },                                                                                       -- Stoneweaver Leggings
+                { id = 9408 },                                                                                       -- Ironshod Bludgeon
+                {},
+                { id = 51217, disc = L["Transmogrification"], dropRate = 1, servers = { AtlasCFM.Server.TURTLE1 } }, -- Fashion Coin
+            }
+        },
+        {
+            id = "UldObsidianSentinel",
+            prefix = "5)",
+            name = LB["Obsidian Sentinel"],
+            color = Colors.GREY
+        },
+        {
+            id = "UldAnnora",
+            prefix = "6)",
+            name = LMD["Annora"],
+            color = Colors.GREY
+        },
+        {
+            id = "UldAncientStoneKeeper",
+            prefix = "7)",
+            name = LB["Ancient Stone Keeper"],
+            defaults = { dropRate = 50 },
+            loot = {
+                { id = 9410 },                                                        -- Cragfists
+                { id = 9411 },                                                        -- Rockshard Pauldrons
+                {},
+                { id = 80746, dropRate = 30, servers = { AtlasCFM.Server.TURTLE1 } }, -- Rockshard Guard
+            }
+        },
+        {
+            id = "UldGalgannFirehammer",
+            prefix = "8)",
+            name = LB["Galgann Firehammer"],
+            defaults = { dropRate = 25 },
+            loot = {
+                { id = 11310 }, -- Flameseer Mantle
+                { id = 9412 },  -- Galgann's Fireblaster
+                { id = 11311 }, -- Emberscale Cape
+                { id = 9419 },  -- Galgann's Firehammer
+            }
+        },
+        {
+            id = "UldTabletofWill",
+            name = LMD["Tablet of Will"],
+            loot = {
+                { id = 5824, dropRate = 100, container = { 6723 } }, -- Tablet of Will
+            }
+        },
+        {
+            id = "UldShadowforgeCache",
+            name = LMD["Shadowforge Cache"],
+            loot = {
+                { id = 7669, dropRate = 100, container = { 7888 } }, -- Shattered Necklace Ruby
+            }
+        },
+        {
+            id = "UldGrimlok",
+            prefix = "9)",
+            name = LB["Grimlok"],
+            defaults = { dropRate = 33 },
+            loot = {
+                { id = 9415 },                                                                                       -- Grimlok's Tribal Vestments
+                { id = 9416 },                                                                                       -- Grimlok's Charge
+                { id = 9414 },                                                                                       -- Oilskin Leggings
+                {},
+                { id = 51217, disc = L["Transmogrification"], dropRate = 1,                              servers = { AtlasCFM.Server.TURTLE1 } }, -- Fashion Coin
+                { id = 26015, dropRate = 1,                   servers = { AtlasCFM.Server.VANILLA_PLUS } },          -- Broken Speartip
+            }
+        },
+        {
+            id = "UldArchaedas",
+            prefix = "10)",
+            name = LB["Archaedas"],
+            postfix = L["Lower"],
+            defaults = { dropRate = 33 },
+            loot = {
+                { id = 11118 },                                                                                      -- Archaedic Stone
+                { id = 9413 },                                                                                       -- The Rockpounder
+                { id = 9418 },                                                                                       -- Stoneslayer
+                {},
+                { id = 51217, disc = L["Transmogrification"], dropRate = 5,                              servers = { AtlasCFM.Server.TURTLE1 } }, -- Fashion Coin
+                { id = 26004, dropRate = 1,                   servers = { AtlasCFM.Server.VANILLA_PLUS } },          -- Hammer of Creation
+                { id = 9417,  dropRate = 1,                   servers = { AtlasCFM.Server.VANILLA_PLUS } },          -- Archaedic Shard
+                { id = 26014, dropRate = 1,                   servers = { AtlasCFM.Server.VANILLA_PLUS } },          -- Archaedas Stone Heart
+                { id = 26005, dropRate = 1,                   servers = { AtlasCFM.Server.VANILLA_PLUS } },          -- Still Eye of the Watcher
+            }
+        },
+        {
+            id = "UldTheDiscsofNorgannon",
+            prefix = "11)",
+            name = LMD["The Discs of Norgannon"] .. ": " .. L["Lower"],
+            color = Colors.GREY
+        },
+        {
+            id = "UldAncientTreasure",
+            name = LMD["Ancient Treasure"] .. ": " .. L["Lower"],
+            color = Colors.GREY
+        },
+        {
+            id = "UldTrash",
+            name = L["Trash Mobs"] .. "-" .. LZ["Uldaman"],
+            defaults = { dropRate = .01 },
+            loot = {
+                { id = 9431 },                                         -- Papal Fez
+                { id = 9429 },                                         -- Miner's Hat of the Deep
+                { id = 80810, servers = { AtlasCFM.Server.TURTLE1 } }, -- Lost Defender's Helmet
+                { id = 9420 },                                         -- Adventurer's Pith Helmet
+                { id = 9430 },                                         -- Spaulders of a Lost Age
+                { id = 9397 },                                         -- Energy Cloak
+                { id = 9406 },                                         -- Spirewind Fetter
+                { id = 9428 },                                         -- Unearthed Bands
+                { id = 9432 },                                         -- Skullplate Bracers
+                { id = 9396 },                                         -- Legguards of the Vault
+                { id = 9393 },                                         -- Beacon of Hope
+                {},
+                { id = 7666,  dropRate = 100,                       container = { 7673 } }, -- Shattered Necklace
+                {},
+                { id = 9381 },                                         -- Earthen Rod
+                { id = 9426 },                                         -- Monolithic Bow
+                { id = 9422 },                                         -- Shadowforge Bushmaster
+                { id = 9465 },                                         -- Digmaster 5000
+                { id = 9384 },                                         -- Stonevault Shiv
+                { id = 9386 },                                         -- Excavator's Brand
+                { id = 9427 },                                         -- Stonevault Bonebreaker
+                { id = 9392 },                                         -- Annealed Blade
+                { id = 9424 },                                         -- Ginn-su Sword
+                { id = 9383 },                                         -- Obsidian Cleaver
+                { id = 9425 },                                         -- Pendulum of Doom
+                { id = 9423 },                                         -- The Jackhammer
+                { id = 9391 },                                         -- The Shoveler
+            }
+        },
+    },
+}
+
+AtlasCFM.InstanceData.UldamanEnt = {
+    Name = LZ["Uldaman"] .. ": " .. L["Entrance"],
+    Location = LZ["Badlands"],
+    Acronym = "Uld",
+    Continent = 2,
+    Entrances = {
+        { letter = "A", info = L["Entrance"] },
+        { letter = "B", info = LZ["Uldaman"] },
+    },
+
+    Bosses = {
+        {
+            id = "UldHammertoeGrez",
+            prefix = "1)",
+            name = LB["Hammertoe Grez"],
+            color = Colors.GREY
+        },
+        {
+            id = "UldMagreganDeepshadow",
+            prefix = "2)",
+            name = LB["Magregan Deepshadow"],
+            postfix = L["Wanders"],
+            loot = {
+                { id = 4635, dropRate = 100, container = { 4987, 6723 } }, -- Hammertoe's Amulet
+            }
+        },
+        {
+            id = "UldTabletofRyuneh",
+            prefix = "3)",
+            name = LMD["Tablet of Ryun'Eh"],
+            loot = {
+                { id = 4631, dropRate = 100, container = { 4746 } }, -- Tablet of Ryun'eh
+            }
+        },
+        {
+            id = "UldKromStoutarmChest",
+            prefix = "4)",
+            name = LMD["Krom Stoutarm's Chest"],
+            loot = {
+                { id = 8027, dropRate = 100 }, -- Krom Stoutarm's Treasure
+            }
+        },
+        {
+            id = "UldGarrettFamilyChest",
+            prefix = "5)",
+            name = LMD["Garrett Family Chest"],
+            loot = {
+                { id = 8026, dropRate = 100 }, -- Garrett Family Treasure
+            }
+        },
+        {
+            id = "UldShovelphlange",
+            prefix = "1')",
+            name = LMD["Digmaster Shovelphlange"],
+            postfix = L["Rare"] .. ", " .. L["Varies"],
+            color = Colors.GREEN,
+            loot = {
+                { id = 9375, dropRate = 10 }, -- Expert Goldminer's Helmet
+                { id = 9378, dropRate = 15 }, -- Shovelphlange's Mining Axe
+                {},
+                { id = 9382, dropRate = 65 }, -- Tromping Miner's Boots
+            }
+        },
+    },
+}
+
+-- Initialize items for all bosses
+for _, bossData in ipairs(AtlasCFM.InstanceData.UldamanEnt.Bosses) do
+    bossData.items = bossData.items or AtlasCFM.CreateItemsFromLootTable(bossData)
+    bossData.loot = nil -- Clear temporary data
+end
+
+-- Initialize items for all bosses
+for _, bossData in ipairs(AtlasCFM.InstanceData.Uldaman.Bosses) do
+    bossData.items = bossData.items or AtlasCFM.CreateItemsFromLootTable(bossData)
+    bossData.loot = nil -- Clear temporary data
+end

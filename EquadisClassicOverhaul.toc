@@ -1,0 +1,100 @@
+## Interface: 11200
+## Title: Equadis' Classic Overhaul
+## Version: 0.86.4
+## X-AtlasCFM-Version: 1.60
+## Author: Equadis
+## Notes: All-in-one interface package with bundled Atlas-CFM, AtlasLoot, and embedded pfQuest/Turtle loot data.
+## X-Website: https://github.com/eqomdx/EquadisClassicOverhaul
+## X-License: GPL-3.0-or-later
+## SavedVariables: EquadisClassicOverhaulDB, AtlasCFMOptions
+## SavedVariablesPerCharacter: AtlasCFMCharDB, AtlasLootCharDB
+## OptionalDeps: pfUI, EquipCompare, EQCompare
+
+# Bundled AtlasLoot TW data provider (user-supplied AtlasLoot commit 78022f8).
+# We load its data libraries/tables, not its standalone UI.
+Libs\AceLibrary\AceLibrary.lua
+Libs\AceOO\AceOO-2.0.lua
+Libs\AceEvent\AceEvent-2.0.lua
+Libs\AceDB\AceDB-2.0.lua
+Libs\AceLocale\AceLocale-2.2.lua
+Libs\AceAddon\AceAddon-2.0.lua
+Libs\Dewdrop\Dewdrop-2.0.lua
+Locale\Locale.xml
+Sets\Sets.xml
+Crafting\Crafting.xml
+PvP\PvP.xml
+WorldEvents\WorldEvents.xml
+Factions\Factions.xml
+Instances\Instances.xml
+WorldBosses\WorldBosses.xml
+TableRegister\TableRegister.xml
+
+# Bundled Atlas-CFM-DestinationClick main (commit 9d92e187).
+# Its own GameTooltip decorator is omitted in CFMLoot/LootInit.xml so ECO has
+# one tooltip owner; map, destination-click and database systems remain intact.
+CFMAtlas\AtlasInit.xml
+CFMLoot\LootInit.xml
+CFMQuest\QuestInit.xml
+
+# foundation
+core.lua
+config.lua
+
+# embedded vanilla vendor sell values; live/learned server values override these
+data\vendor_sell.lua
+
+# shared market/pricing API used by Tooltip now and Auction House later
+pricing.lua
+
+# generated ordinary-world loot snapshot (pfQuest + pfQuest-turtle)
+data\pfquest_loot.lua
+
+# rendering and placement
+render.lua
+layout.lua
+
+# driver
+hud.lua
+
+# chat commands. Above the modules because the chat page offers its action list
+# as a dropdown, which has to exist by the time that page is declared.
+commands.lua
+
+# bar modules -- they register themselves, and this order is also the panel order
+modules\power.lua
+modules\combopoints.lua
+modules\swing.lua
+modules\health.lua
+modules\range.lua
+modules\druidmana.lua
+
+# feature modules -- whole subsystems that own a window rather than a bar, and
+# the only ones the Modules page lists
+modules\parser.lua
+modules\casts.lua
+modules\auras.lua
+modules\roster.lua
+modules\actionbars.lua
+modules\nameplates.lua
+modules\threat.lua
+modules\damage.lua
+modules\chat.lua
+modules\chatbehaviour.lua
+modules\qol.lua
+modules\unitframes.lua
+modules\unitscan.lua
+modules\itemdatabase.lua
+modules\itembrowser.lua
+modules\tooltip.lua
+
+# the roadmap: subsystems that are listed and not yet written. No behaviour, and
+# each moves to a file of its own the moment it has any.
+modules\planned.lua
+
+# interface
+options.lua
+slash.lua
+
+# verification -- depends on everything above, and nothing in it runs until
+# /eqob selftest asks it to
+selftest.lua

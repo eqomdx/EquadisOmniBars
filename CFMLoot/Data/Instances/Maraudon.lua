@@ -1,0 +1,302 @@
+---
+--- Maraudon.lua - Maraudon dungeon instance loot data
+---
+--- This module contains comprehensive loot tables and boss data for the Maraudon
+--- 5-player dungeon instance. It includes all boss encounters, rare drops,
+--- and dungeon-specific items with their respective drop rates.
+---
+--- Features:
+--- • Complete boss encounter loot tables
+--- • Rare and epic item drops
+--- • Dungeon entrance and layout data
+--- • Level-appropriate loot organization
+--- • Quest reward items
+---
+--- @compatible World of Warcraft 1.12
+---
+
+local _G = getfenv()
+AtlasCFM = _G.AtlasCFM or {}
+
+local L = AtlasCFM.Localization.UI
+local LZ = AtlasCFM.Localization.Zones
+local LB = AtlasCFM.Localization.Bosses
+local LS = AtlasCFM.Localization.Spells
+local LMD = AtlasCFM.Localization.MapData
+
+local Colors = AtlasCFM.Colors
+
+AtlasCFM.InstanceData = AtlasCFM.InstanceData or {}
+
+AtlasCFM.InstanceData.MaraudonEnt = {
+    Name = LZ["Maraudon"] .. " (" .. L["Entrance"] .. ")",
+    Location = LZ["Desolace"],
+    Acronym = "Mara",
+    Entrances = {
+        { letter = "A", info = L["Entrance"] },
+        { letter = "B", info = LZ["Maraudon"] .. " (" .. L["Purple"] .. ")" },
+        { letter = "C", info = LZ["Maraudon"] .. " (" .. L["Orange"] .. ")" },
+        { letter = "D", info = LZ["Maraudon"] .. " (" .. L["Portal"] .. ")" },
+    },
+    Bosses = {
+        {
+            id = "MARANamelessProphet",
+            name = LMD["The Nameless Prophet"],
+            loot = {
+                { id = 17757, dropRate = 100, container = { 17774 } }, -- Amulet of Spirits
+            }
+        },
+        {
+            id = "MARAKhanKolk",
+            prefix = "1)",
+            name = LB["Kolk"],
+            loot = {
+                { id = 17761, disc = L["Quest Item"], dropRate = 100, container = { 17774 } }, -- Gem of the First Khan
+            }
+        },
+        {
+            id = "MARAKhanGelk",
+            prefix = "2)",
+            name = LB["Gelk"],
+            loot = {
+                { id = 17762, disc = L["Quest Item"], dropRate = 100, container = { 17774 } }, -- Gem of the Second Khan
+            }
+        },
+        {
+            id = "MARAKhanMagra",
+            prefix = "3)",
+            name = LB["Magra"],
+            loot = {
+                { id = 17763, disc = L["Quest Item"], dropRate = 100, container = { 17774 } }, -- Gem of the Third Khan
+            }
+        },
+        { prefix = "4)", name = LB["Cavindra"],       color = Colors.GREY },
+        { prefix = "5)", name = LB["Cursed Centaur"], postfix = L["Rare"] .. ", " .. L["Varies"], color = Colors.GREY },
+    }
+}
+
+AtlasCFM.InstanceData.Maraudon = {
+    Name = LZ["Maraudon"],
+    Location = LZ["Desolace"],
+    Level = { 35, 55 },
+    Acronym = "Mara",
+    MaxPlayers = 5,
+    DamageType = L["Nature"],
+    Entrances = {
+        { letter = "A", info = L["Orange"] },
+        { letter = "B", info = L["Purple"] },
+        { letter = "C", info = L["Portal"] }
+    },
+    Keys = {
+        { name = LMD["Scepter of Celebras"], loot = "VanillaKeys", info = L["Portal"] }
+    },
+
+    Bosses = {
+        {
+            id = "MARAKhanVeng",
+            prefix = "1)",
+            name = LMD["Veng"],
+            loot = {
+                { id = 17765, disc = L["Quest Item"], dropRate = 100, container = { 17774 } }, -- Gem of the Fifth Khan
+            }
+        },
+        {
+            id = "MARANoxxion",
+            prefix = "2)",
+            name = LB["Noxxion"],
+            defaults = { dropRate = 33 },
+            loot = {
+                { id = 17746 },                                        -- Noxxion's Shackles
+                { id = 17744 },                                        -- Heart of Noxxion
+                {},
+                { id = 17745 },                                        -- Noxious Shooter
+                { id = 17702, dropRate = 100, container = { 17191 } }, -- Celebrian Rod
+            }
+        },
+        {
+            id = "MARARazorlash",
+            prefix = "3)",
+            name = LB["Razorlash"],
+            defaults = { dropRate = 25 },
+            loot = {
+                { id = 17749 },                                                                             -- Phytoskin Spaulders
+                { id = 17748 },                                                                             -- Vinerot Sandals
+                { id = 17750 },                                                                             -- Chloromesh Girdle
+                { id = 17751 },                                                                             -- Brusslehide Leggings
+                {},
+                { id = 60780, dropRate = 3, container = { 65022 },                servers = { AtlasCFM.Server.TURTLE1 } }, -- Pattern: Breastplate of the Earth
+                {},
+                { id = 51802, dropRate = 8, servers = { AtlasCFM.Server.TURTLE1 } },                        -- Idol of Evergrowth
+            }
+        },
+        {
+            id = "MARAKhanMaraudos",
+            prefix = "4)",
+            name = LMD["Maraudos"],
+            loot = {
+                { id = 17764, disc = L["Quest Item"], dropRate = 100, container = { 17774 } }, -- Gem of the Fourth Khan
+            }
+        },
+        {
+            id = "MARALordVyletongue",
+            prefix = "5)",
+            name = LB["Lord Vyletongue"],
+            defaults = { dropRate = 33 },
+            loot = {
+                { id = 17755 },                                                                                      -- Satyrmane Sash
+                { id = 17754 },                                                                                      -- Infernal Trickster Leggings
+                {},
+                { id = 17752 },                                                                                      -- Satyr's Lash
+                {},
+                { id = 17684, dropRate = 80,                  container = { 17775, 17776, 17777, 17779 } },          -- Theradric Crystal Carving
+                { id = 17703, dropRate = 100,                 container = { 17191 } },                               -- Celebrian Diamond
+                { id = 61748, dropRate = 100,                 container = { 61517 },                     servers = { AtlasCFM.Server.TURTLE1 } }, -- Harness of Chimaeran
+                { id = 51217, disc = L["Transmogrification"], dropRate = 5,                              servers = { AtlasCFM.Server.TURTLE1 } }, -- Fashion Coin
+            }
+        },
+        {
+            id = "MARAMeshloktheHarvester",
+            prefix = "6)",
+            name = LB["Meshlok the Harvester"],
+            postfix = L["Rare"],
+            defaults = { dropRate = 33 },
+            loot = {
+                { id = 17767 },                                                                              -- Bloomsprout Headpiece
+                { id = 17741 },                                                                              -- Nature's Embrace
+                { id = 17742 },                                                                              -- Fungus Shroud Armor
+                {},
+                { id = 60780, dropRate = 10, container = { 65022 }, servers = { AtlasCFM.Server.TURTLE1 } }, -- Pattern: Breastplate of the Earth
+            }
+        },
+        {
+            id = "MARACelebrastheCursed",
+            prefix = "7)",
+            name = LB["Celebras the Cursed"],
+            defaults = { dropRate = 33 },
+            loot = {
+                { id = 17740 },                                                                                      -- Soothsayer's Headdress
+                { id = 17739 },                                                                                      -- Grovekeeper's Drape
+                { id = 17738 },                                                                                      -- Claw of Celebras
+                {},
+                { id = 17684, dropRate = 80,                  container = { 17775, 17776, 17777, 17779 } },          -- Theradric Crystal Carving
+                {},
+                { id = 60780, dropRate = 3,                   container = { 65022 },                     servers = { AtlasCFM.Server.TURTLE1 } }, -- Pattern: Breastplate of the Earth
+                {},
+                { id = 51217, disc = L["Transmogrification"], dropRate = 5,                              servers = { AtlasCFM.Server.TURTLE1 } }, -- Fashion Coin
+            }
+        },
+        {
+            id = "MARALandslide",
+            prefix = "8)",
+            name = LB["Landslide"],
+            defaults = { dropRate = 25 },
+            loot = {
+                { id = 17734 },                                                                               -- Helm of the Mountain
+                { id = 17736 },                                                                               -- Rockgrip Gauntlets
+                { id = 17737 },                                                                               -- Cloud Stone
+                { id = 17943 },                                                                               -- Fist of Stone
+                {},
+                { id = 17684, dropRate = 80,         container = { 17775, 17776, 17777, 17779 } },            -- Theradric Crystal Carving
+                { id = 41002, dropRate = 100,        container = { 40080 },                     servers = { AtlasCFM.Server.TURTLE1 } }, -- Heart of Landslide
+                { id = 41356, disc = LS["Gemology"], dropRate = 100,                            servers = { AtlasCFM.Server.TURTLE1 } }, -- Marbled Stone Slab
+            }
+        },
+        {
+            id = "MARATinkererGizlock",
+            prefix = "9)",
+            name = LB["Tinkerer Gizlock"],
+            defaults = { dropRate = 33 },
+            loot = {
+                { id = 17718 },                                                                             -- Gizlock's Hypertech Buckler
+                { id = 17717 },                                                                             -- Megashot Rifle
+                { id = 17719 },                                                                             -- Inventor's Focal Sword
+                {},
+                { id = 17684, dropRate = 80,                             container = { 17775, 17776, 17777, 17779 } }, -- Theradric Crystal Carving
+                {},
+                { id = 26000, servers = { AtlasCFM.Server.VANILLA_PLUS } },                                 -- Liquid Ruby Focusing Lens
+                { id = 50020, disc = L["Reagent"],                       servers = { AtlasCFM.Server.VANILLA_PLUS } }, -- Livingstone
+                { id = 40083, dropRate = 8,                              container = { 41327 },                     servers = { AtlasCFM.Server.TURTLE1 } }, -- Schematic: Jewelry Scope
+                { id = 51809, dropRate = 8,                              container = { 60098 },                     servers = { AtlasCFM.Server.TURTLE1 } }, -- Schematic: Hypertech Essentials
+            }
+        },
+        {
+            id = "MARARotgrip",
+            prefix = "10)",
+            name = LB["Rotgrip"],
+            defaults = { dropRate = 33 },
+            loot = {
+                { id = 17732 },                                                            -- Rotgrip Mantle
+                { id = 17728 },                                                            -- Albino Crocscale Boots
+                { id = 17730 },                                                            -- Gatorbite Axe
+                { id = 26003, servers = { AtlasCFM.Server.VANILLA_PLUS } },                -- Rough Skin Cloak
+                {},
+                { id = 17684, dropRate = 80,                             container = { 17775, 17776, 17777, 17779 } }, -- Theradric Crystal Carving
+            }
+        },
+        {
+            id = "MARAPrincessTheradras",
+            prefix = "11)",
+            name = LB["Princess Theradras"],
+            defaults = { dropRate = 14 },
+            loot = {
+                { id = 17780, dropRate = 1 },                                                                        -- Blade of Eternal Darkness
+                {},
+                { id = 17715 },                                                                                      -- Eye of Theradras
+                { id = 17707 },                                                                                      -- Gemshard Heart
+                { id = 17714 },                                                                                      -- Bracers of the Stone Princess
+                { id = 17711 },                                                                                      -- Elemental Rockridge Leggings
+                { id = 17713 },                                                                                      -- Blackstone Ring
+                {},
+                { id = 17710 },                                                                                      -- Charstone Dirk
+                { id = 17766 },                                                                                      -- Princess Theradras' Scepter
+                {},
+                { id = 17684, dropRate = 80,                  container = { 17775, 17776, 17777, 17779 } },          -- Theradric Crystal Carving
+                { id = 61458, dropRate = 100,                 servers = { AtlasCFM.Server.TURTLE1 } },               -- 52nd Package
+                {},
+                { id = 50020, disc = L["Reagent"],            servers = { AtlasCFM.Server.VANILLA_PLUS } },          -- Livingstone
+                { id = 51217, disc = L["Transmogrification"], dropRate = 5,                              servers = { AtlasCFM.Server.TURTLE1 } }, -- Fashion Coin
+            }
+        },
+        {
+            id = "MARAElderSplitrock",
+            prefix = "12)",
+            name = LMD["Elder Splitrock"],
+            postfix = L["Lunar Festival"],
+            items = "LunarFestival",
+        },
+        {
+            id = "MARATrash",
+            servers = { AtlasCFM.Server.TURTLE1 },
+            name = L["Trash Mobs"] .. "-" .. LZ["Maraudon"],
+            defaults = { dropRate = .01 },
+            loot = {
+                { id = 80756 },                                       -- Vinebound Headband
+                { id = 80753 },                                       -- Vileplate Pauldrons
+                { id = 80752 },                                       -- Cape of Unbridled Growth
+                { id = 80755 },                                       -- Befouled Handwraps
+                { id = 80749 },                                       -- Pysan's Lost Girdle
+                { id = 80754 },                                       -- Earthsong Treaders
+                {},
+                { id = 62008 },                                       -- Thornpod
+                {},
+                { id = 80750 },                                       -- Thornfist
+                { id = 80751 },                                       -- Thornclad Warhammer
+                { id = 80748 },                                       -- Corrupter's Focus
+                {},
+                { id = 60780, dropRate = .5, container = { 65022 } }, -- Pattern: Breastplate of the Earth
+            }
+        },
+    },
+}
+
+-- Initialize items for all bosses
+for _, bossData in ipairs(AtlasCFM.InstanceData.Maraudon.Bosses) do
+    bossData.items = bossData.items or AtlasCFM.CreateItemsFromLootTable(bossData)
+    bossData.loot = nil -- Clear temporary data
+end
+
+-- Initialize items for all bosses
+for _, bossData in ipairs(AtlasCFM.InstanceData.MaraudonEnt.Bosses) do
+    bossData.items = bossData.items or AtlasCFM.CreateItemsFromLootTable(bossData)
+    bossData.loot = nil -- Clear temporary data
+end
